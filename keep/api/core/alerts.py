@@ -33,7 +33,8 @@ from keep.api.models.db.alert import (
 from keep.api.models.db.facet import FacetType
 from keep.api.models.db.incident import IncidentStatus
 from keep.api.models.facet import FacetDto, FacetOptionDto, FacetOptionsQueryDto
-from keep.api.models.query import QueryDto, SortOptionsDto
+from keep.api.models.query import QueryDto
+from keep.api.utils.cel_utils import normalize_cel_expression
 
 logger = logging.getLogger(__name__)
 
@@ -356,27 +357,7 @@ def build_alerts_query(tenant_id, query: QueryDto):
 
 
 def query_last_alerts(tenant_id, query: QueryDto) -> Tuple[list[Alert], int]:
-    query_with_defaults = query.copy()
-
-    # Shahar: this happens when the frontend query builder fails to build a query
-    if query_with_defaults.cel == "1 == 1":
-        logger.warning("Failed to build query for alerts")
-        query_with_defaults.cel = ""
-    if query_with_defaults.limit is None:
-        query_with_defaults.limit = 1000
-    if query_with_defaults.offset is None:
-        query_with_defaults.offset = 0
-    if query_with_defaults.sort_by is not None:
-        query_with_defaults.sort_options = [
-            SortOptionsDto(
-                sort_by=query_with_defaults.sort_by,
-                sort_dir=query_with_defaults.sort_dir,
-            )
-        ]
-    if not query_with_defaults.sort_options:
-        query_with_defaults.sort_options = [
-            SortOptionsDto(sort_by="timestamp", sort_dir="desc")
-        ]
+    query_with_defaults = normalize_cel_expression(query, logger)
 
     with Session(engine) as session:
         try:

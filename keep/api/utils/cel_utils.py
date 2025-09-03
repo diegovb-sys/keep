@@ -1,6 +1,7 @@
 import re
 
 from keep.api.models.alert import AlertSeverity
+from keep.api.models.query import QueryDto, SortOptionsDto
 
 
 def preprocess_cel_expression(cel_expression: str) -> str:
@@ -41,3 +42,36 @@ def preprocess_cel_expression(cel_expression: str) -> str:
     )
 
     return modified_expression
+
+
+def normalize_cel_expression(cel_expression: QueryDto, logger) -> QueryDto:
+    """
+        Normalize CEL expression by setting defaults for limit, offset, and sort options.
+
+        Args:
+            cel_expression (QueryDto): The CEL expression payload.
+            logger: Logger instance for logging warnings.
+
+        Note:
+            Shahar: this happens when the frontend query builder fails to build a query
+    """
+    query_with_defaults = cel_expression.copy()
+    if query_with_defaults.cel == "1 == 1":
+        logger.warning("Failed to build query for alerts")
+        query_with_defaults.cel = ""
+    if query_with_defaults.limit is None:
+        query_with_defaults.limit = 1000
+    if query_with_defaults.offset is None:
+        query_with_defaults.offset = 0
+    if query_with_defaults.sort_by is not None:
+        query_with_defaults.sort_options = [
+            SortOptionsDto(
+                sort_by=query_with_defaults.sort_by,
+                sort_dir=query_with_defaults.sort_dir,
+            )
+        ]
+    if not query_with_defaults.sort_options:
+        query_with_defaults.sort_options = [
+            SortOptionsDto(sort_by="timestamp", sort_dir="desc")
+        ]
+    return query_with_defaults
