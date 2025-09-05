@@ -357,7 +357,7 @@ def build_alerts_query(tenant_id, query: QueryDto):
 
 
 def query_last_alerts(tenant_id, query: QueryDto) -> Tuple[list[Alert], int]:
-    query_with_defaults = normalize_cel_expression(query, logger)
+    query_with_defaults = normalize_cel_expression(query, logger, skip_fields=["incident"])
 
     with Session(engine) as session:
         try:
