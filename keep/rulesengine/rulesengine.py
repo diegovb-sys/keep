@@ -2,7 +2,7 @@ import copy
 import json
 import logging
 import re
-from typing import List, Optional
+from typing import Optional
 
 import celpy
 import celpy.c7nlib
@@ -27,7 +27,7 @@ from keep.api.models.alert import AlertDto, AlertSeverity, AlertStatus
 from keep.api.models.db.alert import Incident
 from keep.api.models.db.rule import Rule
 from keep.api.models.incident import IncidentDto
-from keep.api.utils.cel_utils import preprocess_cel_expression
+from keep.api.utils.cel_utils import preprocess_cel_expression, check_if_rule_apply, coerce_eq_type_error, extract_subrules, sanitize_cel_payload
 from keep.api.utils.enrichment_helpers import convert_db_alerts_to_dto_alerts
 
 # Shahar: this is performance enhancment https://github.com/cloud-custodian/cel-python/issues/68
@@ -90,7 +90,7 @@ class RulesEngine:
                     f"Checking if rule {rule.name} apply to event {event.id}"
                 )
                 try:
-                    matched_rules = self._check_if_rule_apply(rule, event)
+                    matched_rules = check_if_rule_apply(rule, event, self.env)
                 except ValueError as e:
                     if "Invalid name" in str(e):
                         self.logger.warning(
@@ -143,7 +143,7 @@ class RulesEngine:
                                     f"No existing incidents for rule {rule.name}. Checking incident creation conditions"
                                 )
 
-                                rule_groups = self._extract_subrules(
+                                rule_groups = extract_subrules(
                                     rule.definition_cel
                                 )
                                 firing_count = sum(
@@ -366,12 +366,12 @@ class RulesEngine:
 
         is_all_conditions_met = False
 
-        all_sub_rules = set(self._extract_subrules(rule.definition_cel))
+        all_sub_rules = set(extract_subrules(rule.definition_cel))
         matched_sub_rules = set()
 
         for alert in incident.alerts:
             matched_sub_rules = matched_sub_rules.union(
-                self._check_if_rule_apply(rule, AlertDto(**alert.event))
+                check_if_rule_apply(rule, AlertDto(**alert.event), self.env)
             )
             if all_sub_rules == matched_sub_rules:
                 is_all_conditions_met = True
@@ -388,173 +388,6 @@ class RulesEngine:
 
         return incident
 
-    @staticmethod
-    def _extract_subrules(expression):
-        # CEL rules looks like '(source == "sentry") || (source == "grafana" && severity == "critical")'
-        # and we need to extract the subrules
-        sub_rules = expression.split(") || (")
-        if len(sub_rules) == 1:
-            return sub_rules
-        # the first and the last rules will have a ( or ) at the beginning or the end
-        # e.g. for the example of:
-        #           (source == "sentry") && (source == "grafana" && severity == "critical")
-        # than sub_rules[0] will be (source == "sentry" and sub_rules[-1] will be source == "grafana" && severity == "critical")
-        # so we need to remove the first and last character
-        sub_rules[0] = sub_rules[0][1:]
-        sub_rules[-1] = sub_rules[-1][:-1]
-        return sub_rules
-
-    @staticmethod
-    def sanitize_cel_payload(payload):
-        """
-        Remove keys containing forbidden characters from payload and return warnings.
-        Returns tuple of (sanitized_payload, warnings)
-        """
-        forbidden_starts = [
-            "@",
-            "-",
-            "$",
-            "#",
-            " ",
-            ":",
-            ".",
-            "/",
-            "\\",
-            "*",
-            "&",
-            "^",
-            "%",
-            "!",
-        ]
-        logger = logging.getLogger(__name__)
-
-        def _sanitize_dict(d):
-            result = {}
-            for k, v in d.items():
-                if k[0] in forbidden_starts:  # Only check first character
-                    logger.warning(
-                        f"Removed key '{k}' starting with forbidden character '{k[0]}'"
-                    )
-                    continue
-
-                if isinstance(v, dict):
-                    result[k] = _sanitize_dict(v)
-                elif isinstance(v, list):
-                    result[k] = [
-                        _sanitize_dict(i) if isinstance(i, dict) else i for i in v
-                    ]
-                else:
-                    result[k] = v
-            return result
-
-        sanitized = _sanitize_dict(payload)
-        return sanitized
-
-    def _check_if_rule_apply(self, rule: Rule, event: AlertDto) -> List[str]:
-        """
-        Evaluates if a rule applies to an event using CEL. Handles type coercion for ==/!= between int and str.
-        """
-        sub_rules = self._extract_subrules(rule.definition_cel)
-        payload = event.dict()
-        # workaround since source is a list
-        # todo: fix this in the future
-        payload["source"] = payload["source"][0]
-        payload = RulesEngine.sanitize_cel_payload(payload)
-
-        # what we do here is to compile the CEL rule and evaluate it
-        #   https://github.com/cloud-custodian/cel-python
-        #   https://github.com/google/cel-spec
-        sub_rules_matched = []
-        for sub_rule in sub_rules:
-            # Shahar: rules such as "(source != null)" causing an exception:
-            #           celpy.evaluation.CELEvalError: ("found no matching overload for 'relation_ne' applied to
-            #           '(<class 'celpy.celtypes.StringType'>, <class 'NoneType'>)'", <class 'TypeError'>,
-            #            ("no such overload:  <class 'celpy.celtypes.StringType'> != None <class 'NoneType'>",))
-            #          So we need to replace "null" with ""
-            #
-            #          TODO: it works for strings now, but we need to add support on list/dict when needed
-            if "null" in sub_rule:
-                sub_rule = sub_rule.replace("null", '""')
-            ast = self.env.compile(sub_rule)
-            prgm = self.env.program(ast)
-            activation = celpy.json_to_cel(json.loads(json.dumps(payload, default=str)))
-            try:
-                r = prgm.evaluate(activation)
-            except celpy.evaluation.CELEvalError as e:
-                # this is ok, it means that the subrule is not relevant for this event
-                if "no such member" in str(e):
-                    continue
-                # unknown
-                # --- Fix for https://github.com/keephq/keep/issues/5107 ---
-                if "no such overload" in str(e) or "found no matching overload" in str(
-                    e
-                ):
-                    try:
-                        coerced = self._coerce_eq_type_error(
-                            sub_rule, prgm, activation, event
-                        )
-                        if coerced:
-                            sub_rules_matched.append(sub_rule)
-                            continue
-                    except Exception:
-                        pass
-                raise
-            if r:
-                sub_rules_matched.append(sub_rule)
-        # no subrules matched
-        return sub_rules_matched
-
-    def _coerce_eq_type_error(self, cel, prgm, activation, alert):
-        """
-        Helper for type coercion fallback for ==/!= between int and str in CEL.
-        Fixes https://github.com/keephq/keep/issues/5107
-        """
-        import re
-
-        m = re.match(r"([a-zA-Z0-9_\.]+)\s*([!=]=)\s*(.+)", cel)
-        if not m:
-            return False
-        left, op, right = m.groups()
-        left = left.strip()
-        right = (
-            right.strip().strip('"')
-            if right.strip().startswith('"') and right.strip().endswith('"')
-            else right.strip()
-        )
-        try:
-
-            def get_nested(d, path):
-                for part in path.split("."):
-                    if isinstance(d, dict):
-                        d = d.get(part)
-                    else:
-                        return None
-                return d
-
-            left_val = get_nested(activation, left)
-            try:
-                right_val = int(right)
-            except Exception:
-                try:
-                    right_val = float(right)
-                except Exception:
-                    right_val = right
-            # If one is str and the other is int/float, compare as str
-            if (isinstance(left_val, (int, float)) and isinstance(right_val, str)) or (
-                isinstance(left_val, str) and isinstance(right_val, (int, float))
-            ):
-                if op == "==":
-                    return str(left_val) == str(right_val)
-                else:
-                    return str(left_val) != str(right_val)
-            # Also handle both as str for robustness
-            if op == "==":
-                return str(left_val) == str(right_val)
-            else:
-                return str(left_val) != str(right_val)
-        except Exception:
-            pass
-        return False
 
     def _calc_rule_fingerprint(self, event: AlertDto, rule: Rule) -> list[list[str]]:
         # extract all the grouping criteria from the event
@@ -665,7 +498,7 @@ class RulesEngine:
                 payload["severity"] = AlertSeverity(payload["severity"].lower()).order
 
             # sanitize the payload
-            payload = RulesEngine.sanitize_cel_payload(payload)
+            payload = sanitize_cel_payload(payload)
             activation = celpy.json_to_cel(json.loads(json.dumps(payload, default=str)))
             activations.append(activation)
         return activations
@@ -720,7 +553,7 @@ class RulesEngine:
                 ) or "found no matching overload" in str(e):
                     # Try type coercion for == and !=
                     try:
-                        coerced = self._coerce_eq_type_error(
+                        coerced = coerce_eq_type_error(
                             cel, prgm, activation, alert
                         )
                         if coerced:
