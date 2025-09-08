@@ -17,6 +17,7 @@ from keep.api.bl.enrichments_bl import EnrichmentsBl
 from keep.api.core.db import (
     add_alerts_to_incident,
     add_audit,
+    clean_active_incident_alert,
     create_incident_from_dto,
     delete_incident_by_id,
     enrich_alerts_with_incidents,
@@ -457,6 +458,7 @@ class IncidentBl:
             for attempt in range(max_retries):
                 try:
                     incident.status = IncidentStatus.RESOLVED.value
+                    clean_active_incident_alert(incident.id, self.session)
                     self.session.add(incident)
                     self.session.commit()
                     break
