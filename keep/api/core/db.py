@@ -3809,6 +3809,7 @@ def filter_query(session: Session, query, field, value):
 def enrich_incidents_with_alerts(
     tenant_id: str, incidents: List[Incident], session: Optional[Session] = None
 ):
+    incidents = [incident for incident in incidents if incident.status == IncidentStatus.FIRING.value]
     with existed_or_new_session(session) as session:
         incident_alerts = session.exec(
             select(LastAlertToIncident.incident_id, Alert)
