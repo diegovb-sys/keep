@@ -12,6 +12,7 @@ from keep.api.models.alert import (
     AlertWithIncidentLinkMetadataDto,
 )
 from keep.api.models.db.alert import Alert, LastAlertToIncident
+from keep.api.models.db.incident import IncidentStatus
 from keep.api.models.incident import IncidentDto
 
 tracer = trace.get_tracer(__name__)
@@ -215,9 +216,12 @@ def convert_db_alerts_to_dto_alerts(
 
                 if with_incidents:
                     if alert._incidents:
-                        alert.event["incident"] = ",".join(
-                            str(incident.id) for incident in alert._incidents
-                        )
+                        incident_ids = [
+                            str(incident.id)
+                            for incident in alert._incidents
+                            if incident.status in [IncidentStatus.FIRING.value, IncidentStatus.ACKNOWLEDGED.value]
+                        ]
+                        alert.event["incident"] = ",".join(incident_ids) if incident_ids else None
                         alert.event["incident_dto"] = [
                             IncidentDto.from_db_incident(incident)
                             for incident in alert._incidents
