@@ -4422,6 +4422,21 @@ def add_alerts_to_incident(
             ]
 
             for idx, entry in enumerate(alert_to_incident_entries):
+                alert = session.exec(
+                    select(Alert)
+                    .join(LastAlert,
+                        and_(
+                            LastAlert.alert_id == Alert.id,
+                            LastAlert.alert_hash == Alert.alert_hash
+                            )
+                        )
+                    .where(LastAlert.fingerprint == entry.fingerprint)
+                    .with_for_update()
+                ).one()
+                if alert.event["incident"]:
+                    alert.event["incident"] = f"{str(alert.event['incident'])},{str(incident.id)}"
+                else:
+                    alert.event["incident"] = str(incident.id)
                 session.add(entry)
                 if (idx + 1) % 100 == 0:
                     logger.info(
@@ -4612,6 +4627,10 @@ def remove_alerts_to_incident_by_incident_id(
                 }
             )
         )
+
+        # Restore Alert.event.incident field
+        clean_active_incident_alert(incident.id, tenant_id)
+
         session.commit()
 
         # Getting aggregated data for incidents for alerts which just was removed
@@ -5958,3 +5977,34 @@ def recover_prev_alert_status(alert: Alert, session: Optional[Session] = None):
         )
         session.exec(query)
         session.commit()
+
+def clean_active_incident_alert(incident_id:str, tenant_id:str, session: Optional[Session] = None):
+    """
+    Given an incident id, the alerts attached to the incident are removed.
+    """
+    with existed_or_new_session(session) as session:
+        alert_incidents = session.exec(
+        select(Alert)
+            .select_from(LastAlert)
+            .join(
+                LastAlertToIncident,
+                and_(
+                    LastAlertToIncident.tenant_id == LastAlert.tenant_id,
+                    LastAlertToIncident.fingerprint == LastAlert.fingerprint,
+                    LastAlertToIncident.deleted_at == NULL_FOR_DELETED_AT,
+                ),
+            )
+            .join(Incident, LastAlertToIncident.incident_id == incident_id)
+            .join(Alert, LastAlert.alert_id == Alert.id)
+            .where(
+                LastAlert.tenant_id == tenant_id,
+                LastAlertToIncident.fingerprint.in_(
+                    [alert.fingerprint for alert in alerts]
+                ),
+            )
+        ).all()
+        for alert in alert_incidents:
+            if alert.event["incident"]:
+                incident_ids = alert.event["incident"].split(",")
+                new_incident_ids = [id for id in incident_ids if id != str(incident.id)]
+                alert.event["incident"] = None if not new_incident_ids else ",".join(new_incident_ids)
