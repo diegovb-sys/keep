@@ -284,9 +284,8 @@ class IncidentBl:
             raise HTTPException(status_code=404, detail="Incident not found")
 
         incident_dto = IncidentDto.from_db_incident(incident)
-
         deleted = delete_incident_by_id(
-            tenant_id=self.tenant_id, incident_id=incident_id
+            tenant_id=self.tenant_id, incident_id=incident_id, clean_alerts=True
         )
         if not deleted:
             raise HTTPException(status_code=404, detail="Incident not found")

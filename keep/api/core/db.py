@@ -4158,7 +4158,7 @@ def get_incident_by_fingerprint(
 
 
 def delete_incident_by_id(
-    tenant_id: str, incident_id: UUID, session: Optional[Session] = None
+    tenant_id: str, incident_id: UUID, clean_alerts: bool, session: Optional[Session] = None
 ) -> bool:
     if isinstance(incident_id, str):
         incident_id = __convert_to_uuid(incident_id)
@@ -4170,6 +4170,8 @@ def delete_incident_by_id(
             )
         ).first()
 
+        if clean_alerts:
+            clean_active_incident_alert(incident.id, tenant_id)
         session.execute(
             update(Incident)
             .where(
