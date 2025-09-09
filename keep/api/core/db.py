@@ -4497,7 +4497,7 @@ def add_alerts_to_incident(
                         LastAlertToIncident.tenant_id == tenant_id,
                         LastAlertToIncident.incident_id == incident.id,
                     )
-                ).subquery()
+                ).scalar_subquery()
             else:
                 alerts_count = alerts_data_for_incident["count"]
 
@@ -4787,7 +4787,7 @@ def remove_alerts_to_incident_by_incident_id(
                 LastAlertToIncident.tenant_id == tenant_id,
                 LastAlertToIncident.incident_id == incident.id,
             )
-        ).subquery()
+        ).scalar_subquery()
 
         session.exec(
             update(Incident)
