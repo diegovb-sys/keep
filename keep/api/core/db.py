@@ -4443,16 +4443,13 @@ def add_alerts_to_incident(
                     .limit(1)
                     .with_for_update()
                 ).one()
-                if alert.event.get("incident"):
-                    alert.event["incident"] = f"{str(alert.event['incident'])},{str(incident.id)}"
-                else:
-                    new_event = dict(alert.event)
-                    new_event["incident"] = (
-                        f"{alert.event['incident']},{incident.id}"
-                        if alert.event.get("incident")
-                        else str(incident.id)
-                    )
-                    alert.event = new_event
+                new_event = dict(alert.event)
+                new_event["incident"] = (
+                    ",".join(sorted({*(alert.event.get("incident", "").split(",")), str(incident.id)}))
+                    if alert.event.get("incident")
+                    else str(incident.id)
+                )
+                alert.event = new_event
                 session.add(entry)
                 if (idx + 1) % 100 == 0:
                     logger.info(
