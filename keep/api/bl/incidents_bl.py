@@ -520,6 +520,7 @@ class IncidentBl:
         if new_status == IncidentStatus.RESOLVED:
             end_time = datetime.now(tz=timezone.utc)
             incident.end_time = end_time
+            clean_active_incident_alert(incident.id, self.tenant_id, self.session)
 
         if incident.assignee != change_by.email:
             incident.assignee = change_by.email
