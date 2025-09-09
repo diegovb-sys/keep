@@ -4428,13 +4428,22 @@ def add_alerts_to_incident(
                     .join(LastAlert,
                         and_(
                             LastAlert.alert_id == Alert.id,
-                            LastAlert.alert_hash == Alert.alert_hash
+                            LastAlert.tenant_id == Alert.tenant_id,
+                            or_(
+                                LastAlert.alert_hash == Alert.alert_hash,
+                                and_(LastAlert.alert_hash.is_(None), Alert.alert_hash.is_(None))
+                            )
                             )
                         )
-                    .where(LastAlert.fingerprint == entry.fingerprint)
+                    .where(and_(
+                        LastAlert.fingerprint == entry.fingerprint,
+                        Alert.tenant_id == tenant_id,
+                                ))
+                    .order_by(Alert.timestamp.desc())
+                    .limit(1)
                     .with_for_update()
                 ).one()
-                if alert.event["incident"]:
+                if alert.event.get("incident"):
                     alert.event["incident"] = f"{str(alert.event['incident'])},{str(incident.id)}"
                 else:
                     new_event = dict(alert.event)
@@ -5998,7 +6007,6 @@ def clean_active_incident_alert(incident_id:str, tenant_id:str, session: Optiona
                 and_(
                     LastAlertToIncident.tenant_id == LastAlert.tenant_id,
                     LastAlertToIncident.fingerprint == LastAlert.fingerprint,
-                    LastAlertToIncident.deleted_at == NULL_FOR_DELETED_AT,
                 ),
             )
             .join(Incident, LastAlertToIncident.incident_id == Incident.id)
@@ -6011,7 +6019,7 @@ def clean_active_incident_alert(incident_id:str, tenant_id:str, session: Optiona
         ).all()
 
         for alert in alert_incidents:
-            if alert.event["incident"]:
+            if alert.event.get("incident"):
                 new_event = dict(alert.event)
                 incident_ids = new_event["incident"].split(",")
                 new_incident_ids = [id for id in incident_ids if id != str(incident_id)]
