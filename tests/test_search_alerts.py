@@ -1,4 +1,3 @@
-import datetime
 import os
 import time
 from unittest.mock import patch
@@ -9,12 +8,13 @@ import pytest
 from keep.api.bl.enrichments_bl import EnrichmentsBl
 from keep.api.core.dependencies import SINGLE_TENANT_UUID
 from keep.api.models.action_type import ActionType
-from keep.api.models.alert import AlertDto
+from keep.api.models.alert import AlertDto, AlertSeverity, AlertStatus
 from keep.api.models.db.mapping import MappingRule
 from keep.api.models.db.preset import PresetSearchQuery as SearchQuery
 from keep.api.models.query import QueryDto
 from keep.searchengine.searchengine import SearchEngine
 from tests.fixtures.client import client, setup_api_key, test_app  # noqa
+from datetime import UTC, datetime, timedelta
 
 # Shahar: If you are struggling - you can play with https://playcel.undistro.io/ to see how the CEL expressions work
 
@@ -1481,6 +1481,42 @@ def test_search_alerts_by_cel(
             limit=limit,
         ),
     )
+
+
+@pytest.mark.parametrize(
+    "cel_query, n_alerts_expected",
+    [
+        ("incident == null || incident.id == null", 4),
+        ("incident!=null", 6)
+    ],
+)
+def test_search_alerts_w_incident_by_cel(
+    create_alert, cel_query, n_alerts_expected
+):
+    """
+        Feature: Search alerts by CEL with incident filter
+        Scenario: Given some alerts, some of them attached to incidents
+                  the CEL allows to search by this parameter
+    """
+    #GIVEN Alerts 6 of them attached to incidents and 4 not attached
+    for i in range(0, 10):
+        create_alert(
+            f"test-fingerprint-{i}",
+            AlertStatus.FIRING,
+            datetime.now(UTC) - timedelta(hours=1+i),
+            {
+                "severity": AlertSeverity.INFO.value,
+                "lastReceived": (datetime.now(UTC) - timedelta(hours=1+i)).isoformat(),
+                "source": ["test-source"],
+                "incident": None if (i % 3) == 0 else f"test-incident-{i}"
+            },
+            tenant_id=SINGLE_TENANT_UUID,
+        )
+    #WHEN Apply a incident CEL filter
+    actual_alerts = SearchEngine(tenant_id=SINGLE_TENANT_UUID).search_alerts_by_cel(
+        cel_query=cel_query)
+    #THEN The number of alerts returned is the expected one
+    assert len(actual_alerts) == n_alerts_expected
 
 
 """

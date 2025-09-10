@@ -1315,6 +1315,11 @@ def test_incident_bl_delete_incident(db_session):
         )
         assert incidents_count == 0
 
+        alerts = (
+            db_session.query(Alert)
+        )
+        alert_with_incident = [alert for alert in alerts if alert.event.get("incident") != None]
+
         # Check pusher
         assert len(pusher.triggers) == 2  # Created, deleted
 
@@ -1866,3 +1871,58 @@ def test_incident_not_created_maintenance(
         tenant_id=SINGLE_TENANT_UUID, with_alerts=True, is_candidate=False
     )
     assert total == 0
+
+def test_incident_bl_modify_incident_w_alerts(db_session, create_alert):
+    """
+        Feature: Modifying an incident with alerts. Focus on Alert table
+        Scenario: This test checks if the alert.event['incident'] is filled
+                  once it is attached to a incident. Moreover, it checks
+                  if this value is removed once the Incident is deleted.
+    """
+    #GIVEN An incident created
+    incident_bl = IncidentBl(
+        tenant_id=SINGLE_TENANT_UUID, session=db_session
+    )
+    # Check error if no incident found
+    with pytest.raises(HTTPException, match="Incident not found"):
+        incident_bl.delete_incident(uuid4())
+
+    incident_dto_in = IncidentDtoIn(
+        **{
+            "user_generated_name": "Incident name",
+            "user_summary": "Keep: Incident description",
+            "status": "firing",
+        }
+    )
+    incident_dto = incident_bl.create_incident(incident_dto_in)
+    #AND existing in db
+    incident = db_session.query(Incident).one()
+    #WHEN an alert is recived
+    create_alert(
+        "test-fingerprint",
+        AlertStatus.FIRING,
+        datetime.now(UTC) - timedelta(hours=1),
+        {
+            "severity": AlertSeverity.INFO.value,
+            "lastReceived": (datetime.now(UTC) - timedelta(hours=1)).isoformat(),
+            "source": ["test-source"],
+        },
+        tenant_id=SINGLE_TENANT_UUID,
+    )
+    #AND attached to the incident
+    add_alerts_to_incident(
+        SINGLE_TENANT_UUID, incident, ["test-fingerprint"], session=db_session
+    )
+    #THEN Alert will have its incident value update with the incident id
+    alert = db_session.query(Alert).one()
+    incident_alert_value = alert.event.get("incident")
+    assert incident_alert_value == str(incident.id)
+
+    #WHEN a incident is removed
+    incident_bl.delete_incident(incident_dto.id)
+    
+    #THEN The incident field is removed
+    db_session.refresh(alert)
+    alert = db_session.query(Alert).one()
+    incident_alert_value = alert.event.get("incident")
+    assert incident_alert_value is None
