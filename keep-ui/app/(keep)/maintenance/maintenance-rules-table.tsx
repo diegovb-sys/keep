@@ -1,12 +1,15 @@
 import {
   Button,
   Icon,
+  Switch,
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeaderCell,
   TableRow,
+  TextInput,
+  Text
 } from "@tremor/react";
 import {
   DisplayColumnDef,
@@ -21,9 +24,10 @@ import { toast } from "react-toastify";
 import { MaintenanceRule } from "./model";
 import { IoCheckmark } from "react-icons/io5";
 import { HiMiniXMark } from "react-icons/hi2";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi } from "@/shared/lib/hooks/useApi";
 import { showErrorToast } from "@/shared/ui";
+import { on } from "events";
 
 const columnHelper = createColumnHelper<MaintenanceRule>();
 
@@ -39,6 +43,20 @@ export default function MaintenanceRulesTable({
   const api = useApi();
 
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [startDate, setStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [endDate, setEndDate] = useState<string>(new Date().toISOString().slice(0, 10));
+  const [onlyEnabled, setIsEnabled] = useState<boolean>(false);
+  const [showFilters, setShowFilters] = useState<boolean>(false);
+
+  const filteredRules = useMemo(() => {
+    return maintenanceRules.filter((rule) => {
+      const ruleDate = new Date(rule.start_time + "Z");
+      const afterStart = showFilters ? (startDate ? ruleDate >= new Date(startDate) : true) : true;
+      const beforeEnd = showFilters ? (endDate ? ruleDate <= new Date(endDate) : true) : true;
+      const isEnabled = onlyEnabled ? rule.enabled : true;
+      return afterStart && beforeEnd && isEnabled;
+    });
+  }, [maintenanceRules, startDate, endDate, onlyEnabled, showFilters]);
 
   const columns = [
     columnHelper.display({
@@ -116,7 +134,7 @@ export default function MaintenanceRulesTable({
   const table = useReactTable({
     getRowId: (row) => row.id.toString(),
     columns,
-    data: maintenanceRules,
+    data: filteredRules,
     state: { expanded },
     getCoreRowModel: getCoreRowModel(),
     onExpandedChange: setExpanded,
@@ -136,72 +154,128 @@ export default function MaintenanceRulesTable({
   };
 
   return (
-    <Table>
-      <TableHead>
-        {table.getHeaderGroups().map((headerGroup) => (
-          <TableRow
-            className="border-b border-tremor-border dark:border-dark-tremor-border"
-            key={headerGroup.id}
+    <div>
+      <div className="mb-4">
+        <div className="flex justify-center">
+          <div
+            className="cursor-pointer font-semibold text-lg flex items-center space-x-2 select-none hover:text-orange-600"
+            onClick={() => setShowFilters((prev) => !prev)}
           >
-            {headerGroup.headers.map((header) => (
-              <TableHeaderCell
-                className="text-tremor-content-strong dark:text-dark-tremor-content-strong"
-                key={header.id}
-              >
-                {flexRender(
-                  header.column.columnDef.header,
-                  header.getContext()
-                )}
-              </TableHeaderCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableHead>
-      <TableBody>
-        {table.getRowModel().rows.map((row) => (
-          <>
+            <span className="text-sm">Filter</span>
+            <span className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`}>
+              <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+                <path d="M6 9l6 6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+          </div>
+        </div>
+        <div
+          className={`overflow-hidden transition-all duration-300 ${showFilters ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}
+        >
+          {showFilters && (
+            <div className="flex space-x-4 mt-2 p-4 bg-white rounded-lg shadow-lg border border-gray-200">
+               <div className="flex flex-col items-center">
+               <Text className="mb-1">Start date:</Text>
+              <TextInput
+                type={"date" as any}
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="w-40"
+                placeholder="Start Date"
+              />
+              </div>
+              <div className="flex flex-col items-center">
+               <Text className="mb-1">End date:</Text>
+              <TextInput
+                type={"date" as any}
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="w-40"
+                placeholder="End Date"
+              />
+              </div>
+
+      <div className="flex items-center space-x-3 mt-2.5 w-[300px] justify-between">
+        <label
+          htmlFor="onlyEnabledSwitch"
+          className="text-tremor-default text-tremor-content dark:text-dark-tremor-content"
+        >
+          Show only Enabled:
+        </label>
+        <Switch id="onlyEnabledSwitch" checked={onlyEnabled} onChange={setIsEnabled} />
+      </div>
+
+            </div>
+          )}
+        </div>
+      </div>
+      <Table>
+        <TableHead>
+          {table.getHeaderGroups().map((headerGroup) => (
             <TableRow
-              className="even:bg-tremor-background-muted even:dark:bg-dark-tremor-background-muted hover:bg-slate-100"
-              key={row.id}
-              onClick={() => row.toggleExpanded()}
+              className="border-b border-tremor-border dark:border-dark-tremor-border"
+              key={headerGroup.id}
             >
-              {row.getVisibleCells().map((cell) => (
-                <TableCell key={cell.id}>
-                  {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                </TableCell>
+              {headerGroup.headers.map((header) => (
+                <TableHeaderCell
+                  className="text-tremor-content-strong dark:text-dark-tremor-content-strong"
+                  key={header.id}
+                >
+                  {flexRender(
+                    header.column.columnDef.header,
+                    header.getContext()
+                  )}
+                </TableHeaderCell>
               ))}
             </TableRow>
-            {row.getIsExpanded() && (
-              <TableRow className="pl-2.5">
-                <TableCell colSpan={columns.length}>
-                  <div className="flex space-x-2 divide-x">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold">Created By:</span>
-                      <span>{row.original.created_by}</span>
-                    </div>
-                    {row.original.updated_at && (
-                      <>
-                        <div className="flex items-center space-x-2 pl-2.5">
-                          <span className="font-bold">Updated At:</span>
-                          <span>
-                            {new Date(
-                              row.original.updated_at + "Z"
-                            ).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-2 pl-2.5">
-                          <span className="font-bold">Enabled:</span>
-                          <span>{row.original.enabled ? "Yes" : "No"}</span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </TableCell>
+          ))}
+        </TableHead>
+        <TableBody>
+          {table.getRowModel().rows.map((row) => (
+            <>
+              <TableRow
+                className="even:bg-tremor-background-muted even:dark:bg-dark-tremor-background-muted hover:bg-slate-100"
+                key={row.id}
+                onClick={() => row.toggleExpanded()}
+              >
+                {row.getVisibleCells().map((cell) => (
+                  <TableCell key={cell.id}>
+                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                  </TableCell>
+                ))}
               </TableRow>
-            )}
-          </>
-        ))}
-      </TableBody>
-    </Table>
+              {row.getIsExpanded() && (
+                <TableRow className="pl-2.5">
+                  <TableCell colSpan={columns.length}>
+                    <div className="flex space-x-2 divide-x">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold">Created By:</span>
+                        <span>{row.original.created_by}</span>
+                      </div>
+                      {row.original.updated_at && (
+                        <>
+                          <div className="flex items-center space-x-2 pl-2.5">
+                            <span className="font-bold">Updated At:</span>
+                            <span>
+                              {new Date(
+                                row.original.updated_at + "Z"
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2 pl-2.5">
+                            <span className="font-bold">Enabled:</span>
+                            <span>{row.original.enabled ? "Yes" : "No"}</span>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+            </>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
