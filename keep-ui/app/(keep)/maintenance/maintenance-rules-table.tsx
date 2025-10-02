@@ -8,9 +8,10 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
-  TextInput,
-  Text
+  DateRangePicker,
+  DateRangePickerValue
 } from "@tremor/react";
+import { RiWifiLine } from '@remixicon/react';
 import {
   DisplayColumnDef,
   ExpandedState,
@@ -41,22 +42,36 @@ export default function MaintenanceRulesTable({
   editCallback,
 }: Props) {
   const api = useApi();
-
   const [expanded, setExpanded] = useState<ExpandedState>({});
-  const [startDate, setStartDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [endDate, setEndDate] = useState<string>(new Date().toISOString().slice(0, 10));
-  const [onlyEnabled, setIsEnabled] = useState<boolean>(false);
+  const [inProgress, setInProgress] = useState<boolean>(false);
   const [showFilters, setShowFilters] = useState<boolean>(false);
+  const [dateRange, setDateRange] = useState<DateRangePickerValue>({
+    from: undefined,
+    to: undefined,
+  });
 
   const filteredRules = useMemo(() => {
+    const now = new Date();
     return maintenanceRules.filter((rule) => {
-      const ruleDate = new Date(rule.start_time + "Z");
-      const afterStart = showFilters ? (startDate ? ruleDate >= new Date(startDate) : true) : true;
-      const beforeEnd = showFilters ? (endDate ? ruleDate <= new Date(endDate) : true) : true;
-      const isEnabled = onlyEnabled ? rule.enabled : true;
-      return afterStart && beforeEnd && isEnabled;
+      const ruleStart = new Date(rule.start_time + "Z");
+      const ruleEnd = new Date(rule.end_time + "Z");
+
+      let dateFilter = true;
+      if (showFilters && dateRange.from) {
+        const fromDate = new Date(dateRange.from);
+        fromDate.setHours(0, 0, 0, 0);
+        const toDate = dateRange.to ? new Date(dateRange.to) : new Date(dateRange.from);
+        toDate.setHours(23, 59, 59, 999);
+        dateFilter = ruleEnd >= fromDate && ruleStart <= toDate;
+      }
+
+      const inProgressFilter = inProgress
+        ? ruleStart < now && ruleEnd > now && rule.enabled === true
+        : true;
+
+      return dateFilter && inProgressFilter;
     });
-  }, [maintenanceRules, startDate, endDate, onlyEnabled, showFilters]);
+  }, [maintenanceRules, dateRange, showFilters, inProgress]);
 
   const columns = [
     columnHelper.display({
@@ -159,12 +174,24 @@ export default function MaintenanceRulesTable({
         <div className="flex justify-center">
           <div
             className="cursor-pointer font-semibold text-lg flex items-center space-x-2 select-none hover:text-orange-600"
-            onClick={() => setShowFilters((prev) => !prev)}
+             onClick={() => {
+              setShowFilters((prev) => {
+                if (prev) {
+                  toast.dismiss();
+                  toast.warn("Hiding filters, showing all maintenance windows...");
+                  setInProgress(false);
+                  setDateRange({ from: undefined, to: undefined });
+                } else {
+                  toast.dismiss();
+                }
+                return !prev;
+              });
+              }}
           >
             <span className="text-sm">Filter</span>
             <span className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`}>
               <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
-                <path d="M6 9l6 6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M6 9l6 6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </span>
           </div>
@@ -173,38 +200,45 @@ export default function MaintenanceRulesTable({
           className={`overflow-hidden transition-all duration-300 ${showFilters ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}
         >
           {showFilters && (
-            <div className="flex space-x-4 mt-2 p-4 bg-white rounded-lg shadow-lg border border-gray-200">
-               <div className="flex flex-col items-center">
-               <Text className="mb-1">Start date:</Text>
-              <TextInput
-                type={"date" as any}
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-40"
-                placeholder="Start Date"
-              />
-              </div>
-              <div className="flex flex-col items-center">
-               <Text className="mb-1">End date:</Text>
-              <TextInput
-                type={"date" as any}
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-40"
-                placeholder="End Date"
-              />
-              </div>
+            <div className="flex space-x-16 mt-2 p-4 bg-white rounded-lg shadow-lg border border-gray-200 justify-center items-center">
+              <div className="flex flex-row items-center gap-4" onClick={() => setInProgress(false)}>
+                <label
+                  htmlFor="daterange"
+                  className="whitespace-nowrap text-tremor-default font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong"
+                >
+                  Date Range:
+                </label>
+                <DateRangePicker
+                  value={dateRange}
+                  onValueChange={(value) => {
+                    setDateRange(value);
+                    toast.dismiss();
+                    toast.info("Showing maintenance windows for selected date range...");
+                  }}
+                  id="daterange"
+                  className="border-orange-500 dark:border-dark-tremor-border"
+                />
 
-      <div className="flex items-center space-x-3 mt-2.5 w-[300px] justify-between">
-        <label
-          htmlFor="onlyEnabledSwitch"
-          className="text-tremor-default text-tremor-content dark:text-dark-tremor-content"
-        >
-          Show only Enabled:
-        </label>
-        <Switch id="onlyEnabledSwitch" checked={onlyEnabled} onChange={setIsEnabled} />
-      </div>
-
+              </div>
+              <div className="flex items-center space-x-3 w-[300px] justify-between">
+                <label
+                  htmlFor="inProgress"
+                  className="whitespace-nowrap text-tremor-default font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong"
+                >
+                  Show Maintenance Windows in progress:
+                </label>
+                <Switch id="inProgress" checked={inProgress} onChange={() => {
+                  if (!inProgress) {
+                    toast.dismiss();
+                    toast.info("Showing in progress maintenance windows...");
+                  } else {
+                    toast.dismiss();
+                    toast.info("Showing all maintenance windows...");
+                  }
+                  setInProgress((prev) => !prev);
+                  if (!inProgress) setDateRange({ from: undefined, to: undefined });
+                }} />
+              </div>
             </div>
           )}
         </div>
