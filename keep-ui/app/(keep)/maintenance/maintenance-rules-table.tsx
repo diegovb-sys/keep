@@ -11,7 +11,6 @@ import {
   DateRangePicker,
   DateRangePickerValue
 } from "@tremor/react";
-import { RiWifiLine } from '@remixicon/react';
 import {
   DisplayColumnDef,
   ExpandedState,
@@ -28,7 +27,6 @@ import { HiMiniXMark } from "react-icons/hi2";
 import { useState, useMemo } from "react";
 import { useApi } from "@/shared/lib/hooks/useApi";
 import { showErrorToast } from "@/shared/ui";
-import { on } from "events";
 
 const columnHelper = createColumnHelper<MaintenanceRule>();
 
@@ -243,34 +241,48 @@ export default function MaintenanceRulesTable({
           )}
         </div>
       </div>
-      <Table>
-        <TableHead>
-          {table.getHeaderGroups().map((headerGroup) => (
-            <TableRow
-              className="border-b border-tremor-border dark:border-dark-tremor-border"
-              key={headerGroup.id}
-            >
-              {headerGroup.headers.map((header) => (
-                <TableHeaderCell
-                  className="text-tremor-content-strong dark:text-dark-tremor-content-strong"
-                  key={header.id}
-                >
-                  {flexRender(
-                    header.column.columnDef.header,
-                    header.getContext()
-                  )}
-                </TableHeaderCell>
-              ))}
-            </TableRow>
-          ))}
-        </TableHead>
-        <TableBody>
-          {table.getRowModel().rows.map((row) => (
-            <>
+      <style>{`
+        .tremor-Table-root {
+          overflow: visible !important;
+        }
+        .sticky-header thead {
+          position: sticky;
+          top: 0;
+          background: white;
+          z-index: 20;
+          box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+        .dark .sticky-header thead {
+          background: rgb(31 41 55); /* bg-gray-900 */
+        }
+      `}</style>
+      <div className="max-h-[80vh] overflow-y-auto">
+        <Table className="sticky-header">
+          <TableHead suppressHydrationWarning={true}>
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow
+                className="border-b border-tremor-border dark:border-dark-tremor-border"
+                key={headerGroup.id}
+              >
+                {headerGroup.headers.map((header) => (
+                  <TableHeaderCell
+                    className="text-tremor-content-strong dark:text-dark-tremor-content-strong"
+                    key={header.id}
+                  >
+                    {flexRender(
+                      header.column.columnDef.header,
+                      header.getContext()
+                    )}
+                  </TableHeaderCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableHead>
+          <TableBody>
+            {table.getRowModel().rows.map((row) => (
               <TableRow
                 className="even:bg-tremor-background-muted even:dark:bg-dark-tremor-background-muted hover:bg-slate-100"
                 key={row.id}
-                onClick={() => row.toggleExpanded()}
               >
                 {row.getVisibleCells().map((cell) => (
                   <TableCell key={cell.id}>
@@ -278,38 +290,10 @@ export default function MaintenanceRulesTable({
                   </TableCell>
                 ))}
               </TableRow>
-              {row.getIsExpanded() && (
-                <TableRow className="pl-2.5">
-                  <TableCell colSpan={columns.length}>
-                    <div className="flex space-x-2 divide-x">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold">Created By:</span>
-                        <span>{row.original.created_by}</span>
-                      </div>
-                      {row.original.updated_at && (
-                        <>
-                          <div className="flex items-center space-x-2 pl-2.5">
-                            <span className="font-bold">Updated At:</span>
-                            <span>
-                              {new Date(
-                                row.original.updated_at + "Z"
-                              ).toLocaleString()}
-                            </span>
-                          </div>
-                          <div className="flex items-center space-x-2 pl-2.5">
-                            <span className="font-bold">Enabled:</span>
-                            <span>{row.original.enabled ? "Yes" : "No"}</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              )}
-            </>
-          ))}
-        </TableBody>
-      </Table>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
