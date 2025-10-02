@@ -19,7 +19,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table";
-import { MdRemoveCircle, MdModeEdit } from "react-icons/md";
+import { MdRemoveCircle, MdModeEdit, MdExpandMore, MdExpandLess } from "react-icons/md";
 import { toast } from "react-toastify";
 import { MaintenanceRule } from "./model";
 import { IoCheckmark } from "react-icons/io5";
@@ -27,6 +27,7 @@ import { HiMiniXMark } from "react-icons/hi2";
 import { useState, useMemo } from "react";
 import { useApi } from "@/shared/lib/hooks/useApi";
 import { showErrorToast } from "@/shared/ui";
+import React from "react";
 
 const columnHelper = createColumnHelper<MaintenanceRule>();
 
@@ -47,6 +48,7 @@ export default function MaintenanceRulesTable({
     from: undefined,
     to: undefined,
   });
+  const [collapsed, setCollapsed] = useState({ description: false, cel: false, name: false });  // Estado para colapsar las columnas
 
   const filteredRules = useMemo(() => {
     const now = new Date();
@@ -81,6 +83,16 @@ export default function MaintenanceRulesTable({
             color="orange"
             size="xs"
             variant="secondary"
+            icon={context.row.getIsExpanded() ? MdExpandLess : MdExpandMore}
+            onClick={(e: any) => {
+              e.preventDefault();
+              context.row.toggleExpanded();
+            }}
+          />
+          <Button
+            color="orange"
+            size="xs"
+            variant="secondary"
             icon={MdModeEdit}
             onClick={(e: any) => {
               e.preventDefault();
@@ -102,13 +114,37 @@ export default function MaintenanceRulesTable({
     }),
     columnHelper.display({
       id: "name",
-      header: "Name",
-      cell: ({ row }) => row.original.name,
+      header: () => (
+        <span
+          onClick={() => setCollapsed(prev => ({ ...prev, name: !prev.name }))}
+          className="cursor-pointer hover:text-orange-600 transition-colors duration-300 underline"
+        >
+          Name
+        </span>
+      ),
+      cell: ({ row }) => {
+        const name = row.original.name;
+        return collapsed.name ? name.slice(0, 10) + (name.length > 10 ? '...' : '') : name;
+      },
     }),
     columnHelper.display({
       id: "description",
-      header: "Description",
-      cell: (context) => context.row.original.description,
+      header: () => (
+        <span
+          onClick={() => setCollapsed(prev => ({ ...prev, description: !prev.description }))}
+          className="cursor-pointer hover:text-orange-600 transition-colors duration-300 underline"
+        >
+          Description
+        </span>
+      ),
+      cell: (context) => {
+        const desc = context.row.original.description;
+        return desc
+          ? collapsed.description
+            ? desc.slice(0, 10) + (desc.length > 10 ? '...' : '')
+            : desc
+          : "";
+      },
     }),
     columnHelper.display({
       id: "start_time",
@@ -118,8 +154,18 @@ export default function MaintenanceRulesTable({
     }),
     columnHelper.display({
       id: "CEL",
-      header: "CEL",
-      cell: (context) => context.row.original.cel_query,
+      header: () => (
+        <span
+          onClick={() => setCollapsed(prev => ({ ...prev, cel: !prev.cel }))}
+          className="cursor-pointer hover:text-orange-600 transition-colors duration-300 underline"
+        >
+          CEL
+        </span>
+      ),
+      cell: (context) => {
+        const cel = context.row.original.cel_query;
+        return collapsed.cel ? cel.slice(0, 10) + (cel.length > 10 ? '...' : '') : cel;
+      },
     }),
     columnHelper.display({
       id: "end_time",
@@ -280,16 +326,50 @@ export default function MaintenanceRulesTable({
           </TableHead>
           <TableBody>
             {table.getRowModel().rows.map((row) => (
-              <TableRow
-                className="even:bg-tremor-background-muted even:dark:bg-dark-tremor-background-muted hover:bg-slate-100"
-                key={row.id}
-              >
-                {row.getVisibleCells().map((cell) => (
-                  <TableCell key={cell.id}>
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                  </TableCell>
-                ))}
-              </TableRow>
+              <React.Fragment key={row.id}>
+                <TableRow
+                  className="even:bg-tremor-background-muted even:dark:bg-dark-tremor-background-muted hover:bg-slate-100"
+                  key={row.id}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                    </TableCell>
+                  ))}
+                </TableRow>
+                {row.getIsExpanded() && (
+                  <TableRow className="pl-2.5" key={`${row.id}-expanded`}>
+                    <TableCell colSpan={columns.length}>
+                      <div className="flex space-x-2 divide-x">
+                        <div className="flex items-center space-x-2">
+                          <span className="font-bold">Created By:</span>
+                          <span>{row.original.created_by}</span>
+                        </div>
+                        {row.original.updated_at && (
+                          <>
+                            <div className="flex items-center space-x-2 pl-2.5">
+                              <span className="font-bold">Updated At:</span>
+                              <span>
+                                {new Date(
+                                  row.original.updated_at + "Z"
+                                ).toLocaleString()}
+                              </span>
+                            </div>
+                            <div className="flex items-center space-x-2 pl-2.5">
+                              <span className="font-bold">Show in the Feed:</span>
+                              <span>{row.original.suppress ? "Yes" : "No"}</span>
+                            </div>
+                            <div className="flex items-center space-x-2 pl-2.5">
+                              <span className="font-bold">Status ignored:</span>
+                              <span>{row.original.ignore_statuses.length > 0 ? row.original.ignore_statuses.join(', ') : 'None'}</span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                )}
+              </React.Fragment>
             ))}
           </TableBody>
         </Table>
