@@ -214,77 +214,71 @@ export default function MaintenanceRulesTable({
 
   return (
     <div>
-      <div className="mb-4">
-        <div className="flex justify-center">
-          <div
-            className="cursor-pointer font-semibold text-lg flex items-center space-x-2 select-none hover:text-orange-600"
-             onClick={() => {
-              setShowFilters((prev) => {
-                if (prev) {
+      <div className="mb-4 flex flex-col items-center">
+        <div
+          className="cursor-pointer font-semibold text-lg flex items-center space-x-2 select-none hover:text-orange-600 transition-all duration-300 hover:scale-105"
+          onClick={() => {
+            setShowFilters((prev) => {
+              if (prev) {
+                toast.dismiss();
+                toast.warn("Hiding filters, showing all maintenance windows...");
+                setInProgress(false);
+                setDateRange({ from: undefined, to: undefined });
+              } else {
+                toast.dismiss();
+              }
+              return !prev;
+            });
+          }}
+        >
+          <span className="text-sm">Filter</span>
+          <span className={`transition-transform duration-500 ease-in-out ${showFilters ? "rotate-180" : ""}`}>
+            <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
+              <path d="M6 9l6 6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </span>
+        </div>
+        <div className={`transition-all duration-300 ${showFilters ? 'max-h-96 opacity-100' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+          <div className="flex space-x-16 mt-2 p-4 bg-white rounded-lg shadow-lg border border-gray-200 justify-center items-center">
+            <div className="flex flex-row items-center gap-4" onClick={() => setInProgress(false)}>
+              <label
+                htmlFor="daterange"
+                className="whitespace-nowrap text-tremor-default font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong"
+              >
+                Date Range:
+              </label>
+              <DateRangePicker
+                value={dateRange}
+                onValueChange={(value) => {
+                  setDateRange(value);
                   toast.dismiss();
-                  toast.warn("Hiding filters, showing all maintenance windows...");
-                  setInProgress(false);
-                  setDateRange({ from: undefined, to: undefined });
+                  toast.info("Showing maintenance windows for selected date range...");
+                }}
+                id="daterange"
+                className="border-orange-500 dark:border-dark-tremor-border"
+              />
+
+            </div>
+            <div className="flex items-center space-x-3 w-[300px] justify-between">
+              <label
+                htmlFor="inProgress"
+                className="whitespace-nowrap text-tremor-default font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong"
+              >
+                Show Maintenance Windows in progress:
+              </label>
+              <Switch id="inProgress" checked={inProgress} onChange={() => {
+                if (!inProgress) {
+                  toast.dismiss();
+                  toast.info("Showing in progress maintenance windows...");
                 } else {
                   toast.dismiss();
+                  toast.info("Showing all maintenance windows...");
                 }
-                return !prev;
-              });
-              }}
-          >
-            <span className="text-sm">Filter</span>
-            <span className={`transition-transform duration-300 ${showFilters ? "rotate-180" : ""}`}>
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24">
-                <path d="M6 9l6 6 6-6" stroke="#333" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </span>
-          </div>
-        </div>
-        <div
-          className={`overflow-hidden transition-all duration-300 ${showFilters ? "max-h-40 opacity-100" : "max-h-0 opacity-0"}`}
-        >
-          {showFilters && (
-            <div className="flex space-x-16 mt-2 p-4 bg-white rounded-lg shadow-lg border border-gray-200 justify-center items-center">
-              <div className="flex flex-row items-center gap-4" onClick={() => setInProgress(false)}>
-                <label
-                  htmlFor="daterange"
-                  className="whitespace-nowrap text-tremor-default font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong"
-                >
-                  Date Range:
-                </label>
-                <DateRangePicker
-                  value={dateRange}
-                  onValueChange={(value) => {
-                    setDateRange(value);
-                    toast.dismiss();
-                    toast.info("Showing maintenance windows for selected date range...");
-                  }}
-                  id="daterange"
-                  className="border-orange-500 dark:border-dark-tremor-border"
-                />
-
-              </div>
-              <div className="flex items-center space-x-3 w-[300px] justify-between">
-                <label
-                  htmlFor="inProgress"
-                  className="whitespace-nowrap text-tremor-default font-medium text-tremor-content-strong dark:text-dark-tremor-content-strong"
-                >
-                  Show Maintenance Windows in progress:
-                </label>
-                <Switch id="inProgress" checked={inProgress} onChange={() => {
-                  if (!inProgress) {
-                    toast.dismiss();
-                    toast.info("Showing in progress maintenance windows...");
-                  } else {
-                    toast.dismiss();
-                    toast.info("Showing all maintenance windows...");
-                  }
-                  setInProgress((prev) => !prev);
-                  if (!inProgress) setDateRange({ from: undefined, to: undefined });
-                }} />
-              </div>
+                setInProgress((prev) => !prev);
+                if (!inProgress) setDateRange({ from: undefined, to: undefined });
+              }} />
             </div>
-          )}
+          </div>
         </div>
       </div>
       <style>{`
