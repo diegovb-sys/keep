@@ -9,6 +9,7 @@ from keep.api.consts import KEEP_CORRELATION_ENABLED, MAINTENANCE_WINDOW_ALERT_S
 from opentelemetry import trace
 from keep.api.core.db import (
     add_audit,
+    existed_or_new_session,
     get_alert_by_event_id,
     get_alerts_by_status,
     get_all_presets_dtos,
@@ -179,10 +180,9 @@ class MaintenanceWindowsBl:
         """
         logger.info("Starting recover strategy for maintenance windows review.")
         env = celpy.Environment()
-        if session is None:
-            session = get_session_sync()
-        windows = get_maintenance_windows_started(session)
-        alerts_in_maint = get_alerts_by_status(AlertStatus.MAINTENANCE, session)
+        with existed_or_new_session(session) as session:
+            windows = get_maintenance_windows_started(session)
+            alerts_in_maint = get_alerts_by_status(AlertStatus.MAINTENANCE, session)
         fingerprints_to_check: set = set()
         for alert in alerts_in_maint:
             active = False
@@ -226,8 +226,9 @@ class MaintenanceWindowsBl:
                 )
 
         for (tenant, fp) in fingerprints_to_check:
-            last_alert = get_last_alert_by_fingerprint(tenant, fp, session)
-            alert = get_alert_by_event_id(tenant, str(last_alert.alert_id), session)
+            with existed_or_new_session(session) as session:
+                last_alert = get_last_alert_by_fingerprint(tenant, fp, session)
+                alert = get_alert_by_event_id(tenant, str(last_alert.alert_id), session)
             if "previous_status" not in alert.event:
                 logger.info(
                     f"Alert {alert.id} does not have previous status, cannot proceed with recover strategy",
