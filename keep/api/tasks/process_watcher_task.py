@@ -1,6 +1,7 @@
 import asyncio
 import datetime
 import logging
+from typing import Optional
 from filelock import FileLock, Timeout
 import redis
 from keep.api.bl.maintenance_windows_bl import MaintenanceWindowsBl
@@ -10,7 +11,7 @@ from keep.api.consts import REDIS, WATCHER_LAPSED_TIME
 logger = logging.getLogger(__name__)
 
 
-async def async_process_watcher(*args):
+async def async_process_watcher(stop_event_signal: Optional[asyncio.Event], *args):
     if REDIS:
         ctx = args[0]
         redis_instance: redis.Redis = ctx.get("redis")
@@ -22,17 +23,17 @@ async def async_process_watcher(*args):
         logger.info("Watcher process started, acquiring lock.")
         try:
             loop = asyncio.get_running_loop()
-            
+
             # Run maintenance windows recovery
             resp = await loop.run_in_executor(ctx.get("pool"), MaintenanceWindowsBl.recover_strategy, logger)
-            
+
             # Run dismissal expiry check
             await loop.run_in_executor(
                 ctx.get("pool"),
                 DismissalExpiryBl.check_dismissal_expiry,
                 logger
             )
-            
+
         except Exception as e:
             logger.error("Error in watcher process: %s", e, exc_info=True)
             raise
@@ -41,26 +42,36 @@ async def async_process_watcher(*args):
             logger.info("Watcher process completed and lock released.")
         return resp
     else:
-        while True:
+        while not stop_event_signal.is_set():
             init_time = datetime.datetime.now()
             try:
                 with FileLock("/tmp/watcher_process.lock", timeout=WATCHER_LAPSED_TIME//2):
                     logger.info("Watcher process started, acquiring lock.")
                     loop = asyncio.get_running_loop()
-                    
+
                     # Run maintenance windows recovery
-                    resp = await loop.run_in_executor(None, MaintenanceWindowsBl.recover_strategy, logger)
-                    
+                    await loop.run_in_executor(
+                        None,
+                        MaintenanceWindowsBl.recover_strategy,
+                        logger
+                    )
+
                     # Run dismissal expiry check
                     await loop.run_in_executor(
                         None,
                         DismissalExpiryBl.check_dismissal_expiry,
                         logger
                     )
-                    
+
                     logger.info(f"Sleeping for {WATCHER_LAPSED_TIME} seconds before next run.")
                     complete_time = datetime.datetime.now()
-                    await asyncio.sleep(max(0, WATCHER_LAPSED_TIME - (complete_time - init_time).total_seconds()))
+                    sleep_time = max(0, WATCHER_LAPSED_TIME - (complete_time - init_time).total_seconds())
+                    try:
+                        await asyncio.wait_for(stop_event_signal.wait(), timeout=sleep_time)
+                        break
+                    except asyncio.TimeoutError:
+                        # This exception is expected, continue the loop
+                        pass
                     logger.info("Watcher process completed.")
             except Timeout:
                 logger.info("Watcher process is already running, skipping this run.")
