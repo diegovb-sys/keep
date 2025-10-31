@@ -86,5 +86,9 @@ export function getConfig(): InternalConfig {
       process.env.KEEP_TICKETING_ENABLED?.toLowerCase() === "true",
     KEEP_WF_LIST_EXTENDED_INFO:
       process.env.KEEP_WF_LIST_EXTENDED_INFO?.toLowerCase() === "true",
+    KEEP_CUSTOM_DATE_DAYS_FILTER:
+      process.env.KEEP_CUSTOM_DATE_DAYS_FILTER,
+    KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER:
+      process.env.KEEP_CUSTOM_DATE_REFRESH_FILTER?.toLowerCase() === "true",
   };
 }
