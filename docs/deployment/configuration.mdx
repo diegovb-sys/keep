@@ -321,18 +321,22 @@ These endpoints are rate-limited according to the `KEEP_LIMIT_CONCURRENCY` setti
 
 ### General
 
-| Env var                            | Purpose                                                             | Required | Default Value | Valid options   |
-| ---------------------------------- | ------------------------------------------------------------------- | -------- | ------------- | --------------- |
-| **API_URL**                        | Specifies the URL of the Keep backend API                           | Yes      | None          | Valid URL       |
-| **AUTH_SESSION_TIMEOUT**           | Specifies user session timeout in seconds. Default is 30 days.      | No       | 2592000       | Value in seconds|
-| **KEEP_HIDE_SENSITIVE_FIELDS**     | Hides sensitive fields                                              | No       | None          | "true", "false" |
-| **HIDE_NAVBAR_CORRELATION**        | Hides the correlation page from the navigation bar in the UI        | No       | None          | "true"          |
-| **HIDE_NAVBAR_WORKFLOWS**          | Hides the workflows page from the navigation bar in the UI          | No       | None          | "true"          |
-| **HIDE_NAVBAR_SERVICE_TOPOLOGY**   | Hides the service topology page from the navigation bar in the UI   | No       | None          | "true"          |
-| **HIDE_NAVBAR_MAPPING**            | Hides the mapping page from the navigation bar in the UI            | No       | None          | "true"          |
-| **HIDE_NAVBAR_EXTRACTION**         | Hides the extraction page from the navigation bar in the UI         | No       | None          | "true"          |
-| **HIDE_NAVBAR_MAINTENANCE_WINDOW** | Hides the maintenance window page from the navigation bar in the UI | No       | None          | "true"          |
-| **HIDE_NAVBAR_AI_PLUGINS**         | Hides the AI plugins page from the navigation bar in the UI         | No       | None          | "true"          |
+| Env var                                   | Purpose                                                             | Required | Default Value | Valid options   |
+| ----------------------------------        | ------------------------------------------------------------------- | -------- | ------------- | --------------- |
+| **API_URL**                               | Specifies the URL of the Keep backend API                           | Yes      | None          | Valid URL       |
+| **AUTH_SESSION_TIMEOUT**                  | Specifies user session timeout in seconds. Default is 30 days.      | No       | 2592000       | Value in seconds|
+| **KEEP_HIDE_SENSITIVE_FIELDS**            | Hides sensitive fields                                              | No       | None          | "true", "false" |
+| **HIDE_NAVBAR_CORRELATION**               | Hides the correlation page from the navigation bar in the UI        | No       | None          | "true"          |
+| **HIDE_NAVBAR_WORKFLOWS**                 | Hides the workflows page from the navigation bar in the UI          | No       | None          | "true"          |
+| **HIDE_NAVBAR_SERVICE_TOPOLOGY**          | Hides the service topology page from the navigation bar in the UI   | No       | None          | "true"          |
+| **HIDE_NAVBAR_MAPPING**                   | Hides the mapping page from the navigation bar in the UI            | No       | None          | "true"          |
+| **HIDE_NAVBAR_EXTRACTION**                | Hides the extraction page from the navigation bar in the UI         | No       | None          | "true"          |
+| **HIDE_NAVBAR_MAINTENANCE_WINDOW**        | Hides the maintenance window page from the navigation bar in the UI | No       | None          | "true"          |
+| **HIDE_NAVBAR_AI_PLUGINS**                | Hides the AI plugins page from the navigation bar in the UI         | No       | None          | "true"          |
+| **KEEP_WF_LIST_EXTENDED_INFO**            | Use a list instead a button to show the complete execution list     | No       | "true"        | "true", "false" |
+| **KEEP_CUSTOM_DATE_DAYS_FILTER**          | Specifies the number of days to display in the Feed and Incidents   | No       | all-time      | Positive integer|
+| **KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER** | Specify if the Feed/Incidents visualization is stopped or not       | No       | "false"       | "true", "false" |
+
 
 ### Authentication
 
