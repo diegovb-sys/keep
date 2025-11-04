@@ -303,10 +303,9 @@ def __build_query_for_filtering(
                 LastAlert.fingerprint.in_(select(firing_subq.c.fingerprint))
             ),
         )
-
-    sql_query = sql_query.filter(LastAlert.tenant_id == tenant_id).filter(
-        LastAlert.timestamp >= get_threeshold_query(tenant_id)
-    )
+    sql_query = sql_query.filter(LastAlert.tenant_id == tenant_id)
+    if alerts_hard_limit > 0:
+        sql_query = sql_query.filter(LastAlert.timestamp >= get_threeshold_query(tenant_id))
     involved_fields = []
 
     if sql_filter:
@@ -410,16 +409,17 @@ def query_last_alerts(tenant_id, query: QueryDto) -> Tuple[list[Alert], int]:
             if not query_with_defaults.limit:
                 return [], total_count
 
-            if query_with_defaults.offset >= alerts_hard_limit:
-                return [], total_count
+            if alerts_hard_limit > 0:
+                if query_with_defaults.offset >= alerts_hard_limit:
+                    return [], total_count
 
-            if (
-                query_with_defaults.offset + query_with_defaults.limit
-                > alerts_hard_limit
-            ):
-                query_with_defaults.limit = (
-                    alerts_hard_limit - query_with_defaults.offset
-                )
+                if (
+                    query_with_defaults.offset + query_with_defaults.limit
+                    > alerts_hard_limit
+                ):
+                    query_with_defaults.limit = (
+                        alerts_hard_limit - query_with_defaults.offset
+                    )
 
             data_query = build_alerts_query(tenant_id, query_with_defaults)
             alerts_with_start = session.execute(data_query).all()
