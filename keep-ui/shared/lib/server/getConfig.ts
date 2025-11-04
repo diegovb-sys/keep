@@ -89,6 +89,6 @@ export function getConfig(): InternalConfig {
     KEEP_CUSTOM_DATE_DAYS_FILTER:
       process.env.KEEP_CUSTOM_DATE_DAYS_FILTER,
     KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER:
-      process.env.KEEP_CUSTOM_DATE_REFRESH_FILTER?.toLowerCase() === "true",
+      process.env.KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER?.toLowerCase() === "true",
   };
 }
