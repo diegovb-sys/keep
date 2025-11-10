@@ -1,3 +1,4 @@
+import datetime
 import io
 import logging
 import os
@@ -32,11 +33,50 @@ from keep.workflowmanager.workflow import Workflow
 from sqlalchemy.exc import NoResultFound
 
 
+class WorkflowEntryCache:
+    def __init__(self, workflow: WorkflowModel, parser: Parser):
+        self.id = workflow.id
+        self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
+        self.last_modified_saved = workflow.last_updated
+        self.tenant_id = workflow.tenant_id
+        self.parser = parser
+
+
+    def get_payload(self, workflow: WorkflowModel) -> Workflow | None:
+        """
+        Retrieve the workflow payload, updating it if the underlying workflow has changed.
+
+        Args:
+            workflow (WorkflowModel): workflow database model
+
+        Returns:
+            Workflow | None: _description_
+        """
+        if self.last_modified_saved < workflow.last_updated:
+            self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
+        elif self.last_modified_saved > workflow.last_updated:
+            # This should not happend
+            self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
+        return self.payload
+
+    def __parse_payload(self, raw: str, revision: int, is_test: bool) -> Workflow:
+        workflow_yaml = cyaml.safe_load(raw)
+        workflow = self.parser.parse(
+            self.tenant_id,
+            workflow_yaml,
+            workflow_db_id=self.id,
+            workflow_revision=revision,
+            is_test=is_test,
+        )
+        return workflow
+
+
 class WorkflowStore:
     def __init__(self):
         self.parser = Parser()
         self.logger = logging.getLogger(__name__)
         self.celpy_env = celpy.Environment()
+        self.workflows_payload: dict[str, WorkflowEntryCache] = {}
 
     def get_workflow_execution(
         self,
@@ -151,19 +191,15 @@ class WorkflowStore:
 
     def get_workflow(self, tenant_id: str, workflow_id: str) -> Workflow:
         workflow = get_workflow_by_id(tenant_id, workflow_id)
+
         if not workflow:
             raise HTTPException(
                 status_code=404,
                 detail=f"Workflow {workflow_id} not found",
             )
-        workflow_yaml = cyaml.safe_load(workflow.workflow_raw)
-        workflow = self.parser.parse(
-            tenant_id,
-            workflow_yaml,
-            workflow_db_id=workflow.id,
-            workflow_revision=workflow.revision,
-            is_test=workflow.is_test,
-        )
+        if workflow not in self.workflows_payload:
+            self.workflows_payload[workflow.id] = WorkflowEntryCache(workflow, self.parser)
+        workflow = self.workflows_payload[workflow.id].get_payload(workflow)
         if len(workflow) > 1:
             raise HTTPException(
                 status_code=500,
