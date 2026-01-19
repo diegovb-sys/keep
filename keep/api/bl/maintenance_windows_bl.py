@@ -9,6 +9,7 @@ from keep.api.consts import KEEP_CORRELATION_ENABLED, MAINTENANCE_WINDOW_ALERT_S
 from opentelemetry import trace
 from keep.api.core.db import (
     add_audit,
+    existed_or_new_session,
     get_alert_by_event_id,
     get_alerts_by_status,
     get_all_presets_dtos,
@@ -179,55 +180,55 @@ class MaintenanceWindowsBl:
         """
         logger.info("Starting recover strategy for maintenance windows review.")
         env = celpy.Environment()
-        if session is None:
-            session = get_session_sync()
-        windows = get_maintenance_windows_started(session)
-        alerts_in_maint = get_alerts_by_status(AlertStatus.MAINTENANCE, session)
-        fingerprints_to_check: set = set()
-        for alert in alerts_in_maint:
-            active = False
-            for window in windows:
-                w_start = window.start_time
-                w_end = window.end_time
-                is_enable = window.enabled
-                if window.tenant_id != alert.tenant_id:
-                    continue
-                # Check active windows
-                if (
-                    w_start < alert.timestamp
-                    and alert.timestamp < w_end
-                    and w_end > datetime.datetime.utcnow()
-                    and is_enable
-                ):
-                    logger.info("Checking alert %s in maintenance window %s", alert.id, window.id)
-                    is_in_cel = MaintenanceWindowsBl.evaluate_cel(
-                        window, alert, env, logger, {"tenant_id": alert.tenant_id, "alert_id": alert.id}
+        with existed_or_new_session(session) as session:
+            windows = get_maintenance_windows_started(session)
+            alerts_in_maint = get_alerts_by_status(AlertStatus.MAINTENANCE, session)
+            fingerprints_to_check: set = set()
+            for alert in alerts_in_maint:
+                active = False
+                for window in windows:
+                    w_start = window.start_time
+                    w_end = window.end_time
+                    is_enable = window.enabled
+                    if window.tenant_id != alert.tenant_id:
+                        continue
+                    # Check active windows
+                    if (
+                        w_start < alert.timestamp
+                        and alert.timestamp < w_end
+                        and w_end > datetime.datetime.utcnow()
+                        and is_enable
+                    ):
+                        logger.info("Checking alert %s in maintenance window %s", alert.id, window.id)
+                        is_in_cel = MaintenanceWindowsBl.evaluate_cel(
+                            window, alert, env, logger, {"tenant_id": alert.tenant_id, "alert_id": alert.id}
+                        )
+                        # Recover source structure
+                        if not isinstance(alert.event.get("source"), list):
+                            alert.event["source"] = [alert.event["source"]]
+                        if is_in_cel:
+                            active = True
+                            set_maintenance_windows_trace(alert, window, session)
+                            logger.info("Alert %s is blocked due to the maintenance window: %s.", alert.id, window.id)
+                            break
+                if not active:
+                    recover_prev_alert_status(alert, session)
+                    fingerprints_to_check.add((alert.tenant_id, alert.fingerprint))
+                    add_audit(
+                        tenant_id=alert.tenant_id,
+                        fingerprint=alert.fingerprint,
+                        user_id="system",
+                        action=ActionType.MAINTENANCE_EXPIRED,
+                        description=(
+                            f"Alert {alert.id} has recover its previous status, "
+                            f"from {alert.event.get('previous_status')} to {alert.event.get('status')}"
+                        ),
                     )
-                    # Recover source structure
-                    if not isinstance(alert.event.get("source"), list):
-                        alert.event["source"] = [alert.event["source"]]
-                    if is_in_cel:
-                        active = True
-                        set_maintenance_windows_trace(alert, window, session)
-                        logger.info("Alert %s is blocked due to the maintenance window: %s.", alert.id, window.id)
-                        break
-            if not active:
-                recover_prev_alert_status(alert, session)
-                fingerprints_to_check.add((alert.tenant_id, alert.fingerprint))
-                add_audit(
-                    tenant_id=alert.tenant_id,
-                    fingerprint=alert.fingerprint,
-                    user_id="system",
-                    action=ActionType.MAINTENANCE_EXPIRED,
-                    description=(
-                        f"Alert {alert.id} has recover its previous status, "
-                        f"from {alert.event.get('previous_status')} to {alert.event.get('status')}"
-                    ),
-                )
 
         for (tenant, fp) in fingerprints_to_check:
-            last_alert = get_last_alert_by_fingerprint(tenant, fp, session)
-            alert = get_alert_by_event_id(tenant, str(last_alert.alert_id), session)
+            with existed_or_new_session(session) as session:
+                last_alert = get_last_alert_by_fingerprint(tenant, fp, session)
+                alert = get_alert_by_event_id(tenant, str(last_alert.alert_id), session)
             if "previous_status" not in alert.event:
                 logger.info(
                     f"Alert {alert.id} does not have previous status, cannot proceed with recover strategy",
@@ -259,7 +260,6 @@ class MaintenanceWindowsBl:
             with tracer.start_as_current_span("mw_recover_strategy_run_rules_engine"):
                 # Now we need to run the rules engine
                 if KEEP_CORRELATION_ENABLED:
-                    incidents = []
                     try:
                         rules_engine = RulesEngine(tenant_id=tenant)
                         # handle incidents, also handle workflow execution as
@@ -275,6 +275,7 @@ class MaintenanceWindowsBl:
                                 "tenant_id": tenant,
                             },
                         )
+
             with tracer.start_as_current_span("mw_recover_strategy_notify_client"):
                 pusher_client = get_pusher_client()
                 if not pusher_client:
