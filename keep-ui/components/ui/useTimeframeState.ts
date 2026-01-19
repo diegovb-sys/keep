@@ -84,7 +84,10 @@ function deleteTimeframeParams(searchParams: URLSearchParams) {
 export function useTimeframeState({
   enableQueryParams,
   defaultTimeframe,
-}: typeof defaultOptions) {
+}:  {
+  enableQueryParams: boolean;
+  defaultTimeframe: TimeFrameV2;
+}) {
   const searchParams = useSearchParams();
   const defaultTimeframeRef = useRef<TimeFrameV2 | undefined>(undefined);
   defaultTimeframeRef.current =
