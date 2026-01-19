@@ -25,7 +25,6 @@ from starlette_context.middleware import RawContextMiddleware
 from keep.api.arq_pool import get_pool
 import keep.api.logging
 import keep.api.observability
-from keep.api.tasks import process_watcher_task
 import keep.api.utils.import_ee
 from keep.api.core.config import config
 from keep.api.core.db import dispose_session
@@ -70,6 +69,7 @@ from keep.topologies.topology_processor import TopologyProcessor
 from keep.api.consts import KEEP_ARQ_QUEUE_MAINTENANCE, MAINTENANCE_WINDOW_ALERT_STRATEGY, REDIS
 
 # load all providers into cache
+from keep.watcher.watchermanager import WatcherManager
 from keep.workflowmanager.workflowmanager import WorkflowManager
 
 load_dotenv(find_dotenv())
@@ -180,13 +180,11 @@ async def startup():
             except Exception:
                 logger.exception("Failed to start the maintenance windows")
         else:
-            asyncio.create_task(process_watcher_task.async_process_watcher())
-            logger.info(
-                "Added task",
-                extra={
-                    "task": "task",
-                },
-            )
+            logger.info("Starting the watcher process")
+            try:
+                WatcherManager().start()
+            except Exception:
+                logger.exception("Failed to start the watcher process")
     logger.info("Services started successfully")
 
 
@@ -215,6 +213,14 @@ async def shutdown():
         except TypeError:
             pass
         logger.info("Consumer stopped successfully")
+    if WATCHER or (MAINTENANCE_WINDOWS and MAINTENANCE_WINDOW_ALERT_STRATEGY == "recover_previous_status"):
+        logger.info("Stopping the watcher process")
+        if not REDIS:
+            try:
+                WatcherManager().stop()
+            except TypeError:
+                pass
+            logger.info("Watcher process stopped successfully")
 
     logger.info("Keep shutdown complete")
 
