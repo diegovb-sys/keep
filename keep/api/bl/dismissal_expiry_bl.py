@@ -237,8 +237,7 @@ class DismissalExpiryBl:
                             "fingerprint": enrichment.alert_fingerprint
                         }
                     )
-                
-                # Update Elasticsearch index
+
                 try:
                     # Get the latest alert for this fingerprint to create AlertDto
                     latest_alert = session.exec(
@@ -248,7 +247,20 @@ class DismissalExpiryBl:
                         .order_by(Alert.timestamp.desc())
                         .limit(1)
                     ).first()
-                    
+                except Exception as e:
+                    logger.error(
+                        f"Failed to fetch latest alert for fingerprint {enrichment.alert_fingerprint}: {e}",
+                        extra={
+                            "tenant_id": enrichment.tenant_id,
+                            "fingerprint": enrichment.alert_fingerprint
+                        }
+                    )
+                    latest_alert = None
+
+                session.commit()
+                
+                # Update Elasticsearch index
+                try:
                     if latest_alert:
                         # Create AlertDto with updated enrichments
                         alert_data = latest_alert.event.copy()
@@ -290,7 +302,7 @@ class DismissalExpiryBl:
                             "fingerprint": enrichment.alert_fingerprint
                         }
                     )
-                
+
                 # Notify UI of change
                 try:
                     pusher_client = get_pusher_client()
@@ -319,8 +331,6 @@ class DismissalExpiryBl:
                         }
                     )
             
-            # Commit all changes
-            session.commit()
             logger.info(
                 f"Successfully processed {len(expired_enrichments)} expired dismissal enrichments",
                 extra={"processed_count": len(expired_enrichments)}
@@ -331,4 +341,5 @@ class DismissalExpiryBl:
             session.rollback()
             raise
         finally:
+            session.close()
             logger.info("Dismissal expiry check completed")
