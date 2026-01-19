@@ -167,10 +167,6 @@ export function ManualRunWorkflowModal({
     clearAndClose();
   };
 
-  const WorkflowSelect = (props: any) => {
-    return <Select<Workflow> {...props} />;
-  };
-
   const CustomOption = (props: OptionProps<Workflow>) => {
     const workflow: Workflow = props.data;
 
@@ -239,14 +235,14 @@ export function ManualRunWorkflowModal({
                   permissions.
                 </Callout>
               )}
-              <WorkflowSelect
+              <Select<Workflow>
                 placeholder="Select workflow"
                 value={selectedWorkflow}
                 getOptionValue={(w: any) => w.id}
                 getOptionLabel={(workflow: Workflow) =>
                   `${workflow.name} (${workflow.description})`
                 }
-                onChange={setSelectedWorkflow}
+                onChange={(wf) => setSelectedWorkflow(wf ?? undefined)}
                 filterOption={(
                   { data: workflow }: FilterOptionOption<Workflow>,
                   query: string
