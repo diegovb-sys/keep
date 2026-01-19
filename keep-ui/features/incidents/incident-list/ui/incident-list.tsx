@@ -49,9 +49,12 @@ import { DynamicImageProviderIcon } from "@/components/ui";
 import { useIncidentsTableData } from "./useIncidentsTableData";
 import EnhancedDateRangePickerV2, {
   AllTimeFrame,
+  ONE_DAY,
+  RelativeTimeFrame,
 } from "@/components/ui/DateRangePickerV2";
 import { useTimeframeState } from "@/components/ui/useTimeframeState";
 import { PaginationState } from "@/features/filter/pagination";
+import { useConfig } from "@/utils/hooks/useConfig";
 
 const AssigneeLabel = ({ email }: { email: string }) => {
   const user = useUser(email);
@@ -76,13 +79,20 @@ export function IncidentList({
 
   const [filterCel, setFilterCel] = useState<string | null>(null);
 
+  const { data: appConfig } = useConfig();
+  const days = appConfig?.KEEP_CUSTOM_DATE_DAYS_FILTER;
+  
   const [dateRange, setDateRange] = useTimeframeState({
     enableQueryParams: true,
-    defaultTimeframe: {
-      type: "all-time",
-      isPaused: false,
-    } as AllTimeFrame,
-  });
+     defaultTimeframe: days ? ({
+       type: "relative",
+       deltaMs: (days ? Number(days) : 7) * ONE_DAY,
+       isPaused: appConfig?.KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER,
+     } as RelativeTimeFrame) : ({
+       type: "all-time",
+       isPaused: false,
+     } as AllTimeFrame),
+     });
 
   const {
     isEmptyState,
