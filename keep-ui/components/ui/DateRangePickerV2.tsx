@@ -18,7 +18,7 @@ import clsx from "clsx";
 
 const ONE_MINUTE = 60 * 1000;
 const ONE_HOUR = 60 * ONE_MINUTE;
-const ONE_DAY = 24 * ONE_HOUR;
+export const ONE_DAY = 24 * ONE_HOUR;
 
 export interface AllTimeFrame {
   type: "all-time";

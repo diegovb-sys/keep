@@ -40,6 +40,9 @@ export interface InternalConfig {
   // Add ticketing options to the incident view, defaults to false
   KEEP_TICKETING_ENABLED: boolean;
   KEEP_WF_LIST_EXTENDED_INFO: boolean;
+  // Custom date days filter
+  KEEP_CUSTOM_DATE_DAYS_FILTER: string | undefined;
+  KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER: boolean;
   // Alert sidebar fields configuration - comma-separated list of fields to display
   ALERT_SIDEBAR_FIELDS: string[];
 }

@@ -69,6 +69,7 @@ import { useIsShiftKeyHeld } from "@/features/keyboard-shortcuts";
 import SettingsSelection from "./SettingsSelection";
 import EnhancedDateRangePickerV2, {
   AllTimeFrame,
+  RelativeTimeFrame,
 } from "@/components/ui/DateRangePickerV2";
 import { AlertsTableDataQuery } from "./useAlertsTableData";
 import { useTimeframeState } from "@/components/ui/useTimeframeState";
@@ -76,6 +77,7 @@ import { PaginationState } from "@/features/filter/pagination";
 import { useGroupExpansion } from "@/utils/hooks/useGroupExpansion";
 import { usePresetColumnState } from "@/entities/presets/model";
 import { STATIC_PRESET_IDS, STATIC_PRESETS_NAMES } from "@/entities/presets/model/constants";
+import { ONE_DAY } from "@/components/ui/DateRangePickerV2";
 
 const AssigneeLabel = ({ email }: { email: string }) => {
   const user = useUser(email);
@@ -177,12 +179,20 @@ export function AlertTableServerSide({
   const { data: configData } = useConfig();
   const noisyAlertsEnabled = configData?.NOISY_ALERTS_ENABLED;
   const { theme } = useAlertTableTheme();
+
+  const { data: appConfig } = useConfig();
+  const days = appConfig?.KEEP_CUSTOM_DATE_DAYS_FILTER;
+
   const [timeFrame, setTimeFrame] = useTimeframeState({
     enableQueryParams: true,
-    defaultTimeframe: {
+     defaultTimeframe: days ? ({
+       type: "relative",
+       deltaMs: (days ? Number(days) : 7) * ONE_DAY,
+       isPaused: appConfig?.KEEP_CUSTOM_DATE_PAUSE_REFRESH_FILTER,
+     } as RelativeTimeFrame) : ({
       type: "all-time",
       isPaused: false,
-    } as AllTimeFrame,
+     } as AllTimeFrame),
   });
 
   const columnsIds = getColumnsIds(columns);
