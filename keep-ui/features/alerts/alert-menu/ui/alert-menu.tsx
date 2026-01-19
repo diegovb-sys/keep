@@ -86,7 +86,7 @@ export function AlertMenu({
   const api = useApi();
   const router = useRouter();
   const { data: appConfig } = useConfig();
-  const { data: executions } = appConfig?.KEEP_WF_LIST_EXTENDED_INFO === true
+  const { data: executions } = appConfig?.KEEP_WF_LIST_EXTENDED_INFO === false
     ? useWorkflowExecutions()
     : { data: [] };
   const [rowStyle] = useAlertRowStyle();
