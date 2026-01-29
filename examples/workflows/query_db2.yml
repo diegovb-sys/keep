@@ -1,0 +1,47 @@
+workflow:
+  id: db2-query-example
+  name: DB2 Query Example
+  description: Example workflow demonstrating how to query IBM DB2 database and use the results
+  triggers:
+    - type: manual
+  steps:
+    # Query DB2 for system information
+    - name: query-db2-tables
+      provider:
+        type: db2
+        config: " {{ providers.db2-prod }} "
+        with:
+          query: "SELECT TABNAME, CARD FROM SYSCAT.TABLES WHERE TABSCHEMA = 'MYSCHEMA' FETCH FIRST 10 ROWS ONLY"
+          as_dict: true
+    
+    # Query with parameters
+    - name: query-with-params
+      provider:
+        type: db2
+        config: " {{ providers.db2-prod }} "
+        with:
+          query: "SELECT * FROM employees WHERE department = '{dept}' AND salary > {min_salary}"
+          dept: "IT"
+          min_salary: 50000
+          as_dict: true
+    
+    # Query single row
+    - name: query-single-row
+      provider:
+        type: db2
+        config: " {{ providers.db2-prod }} "
+        with:
+          query: "SELECT COUNT(*) as total FROM employees"
+          single_row: true
+  
+  actions:
+    # Send results to Slack
+    - name: notify-slack
+      provider:
+        type: slack
+        config: " {{ providers.slack-demo }} "
+        with:
+          message: |
+            DB2 Query Results:
+            Tables found: {{ steps.query-db2-tables.results | length }}
+            Total employees: {{ steps.query-single-row.results.total }}
