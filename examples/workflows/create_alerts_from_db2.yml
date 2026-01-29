@@ -1,0 +1,41 @@
+workflow:
+  id: db2-alert-sync
+  name: DB2 Alert Sync
+  description: Synchronizes alerts from an IBM DB2 database into Keep, with configurable intervals and data mapping.
+  triggers:
+    # run manually (debugging)
+    - type: manual
+    # run every 5 minutes
+    - type: interval
+      value: 300
+  steps:
+    # get the alert details from DB2
+    - name: get-alerts-from-db2
+      provider:
+        type: db2
+        config: " {{ providers.db2-prod }} "
+        with:
+          # run the query, and limit the results to the last run
+          query: "SELECT * FROM monitoring_system.alerts WHERE ts > '{{ last_workflow_run_time }}' FETCH FIRST 100 ROWS ONLY"
+          as_dict: true
+  # create the alerts using Keep provider
+  actions:
+    # Create an alert in Keep based on the query results
+    - name: create-alert
+      provider:
+        type: keep
+        with:
+          # by default, the alert will be created in the "keep" source, this can be adjusted
+          override_source_with: "db2"
+          # do not try to resolve alerts or smth like that - just sync from the database
+          read_only: true
+          # adjust if needed
+          fingerprint_fields:
+            - id
+          # build the alert payload from the query results
+          alert:
+            name: "{{ message }}"
+            status: "{{ state }}"
+            host: "{{ host }}"
+            service: "{{ service }}"
+            client: "{{ client }}"
