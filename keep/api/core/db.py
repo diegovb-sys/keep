@@ -2016,14 +2016,45 @@ def get_previous_alert_by_fingerprint(tenant_id: str, fingerprint: str) -> Alert
 
 
 def get_alerts_by_status(
-    status: AlertStatus, session: Optional[Session] = None
+    status: AlertStatus,
+    session: Optional[Session] = None,
+    tenant_id: Optional[str] = None,
+    limit: Optional[int] = 10000,
+    offset: int = 0,
 ) -> List[Alert]:
+    """
+    Get alerts by status with pagination support.
+
+    Args:
+        status: Alert status to filter by
+        session: SQLAlchemy session (optional)
+        tenant_id: Filter by specific tenant (highly recommended for performance)
+        limit: Maximum number of alerts to return (default: 10000, use None for unlimited)
+        offset: Number of alerts to skip for pagination
+
+    Returns:
+        List of Alert objects
+
+    Performance note: Using tenant_id filter significantly improves query performance
+    """
     with existed_or_new_session(session) as session:
         status_field = get_json_extract_field(session, Alert.event, "status")
-        query = (
-            select(Alert).
-            where(status_field == status.value)
-        )
+
+        query = select(Alert).where(status_field == status.value)
+
+        # Add tenant filter if provided (critical for multi-tenant performance)
+        if tenant_id:
+            query = query.where(Alert.tenant_id == tenant_id)
+
+        # Add ordering for consistent pagination
+        query = query.order_by(Alert.timestamp.desc())
+
+        # Add pagination
+        if limit is not None:
+            query = query.limit(limit)
+        if offset > 0:
+            query = query.offset(offset)
+
         return session.exec(query).all()
 
 
