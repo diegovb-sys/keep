@@ -188,48 +188,82 @@ class MaintenanceWindowsBl:
         env = celpy.Environment()
         with existed_or_new_session(session) as session:
             windows = get_maintenance_windows_started(session)
-            alerts_in_maint = get_alerts_by_status(AlertStatus.MAINTENANCE, session)
+
+            # Get unique tenant_ids from active windows to optimize query
+            tenant_ids = {window.tenant_id for window in windows}
+
             fingerprints_to_check: set = set()
-            for alert in alerts_in_maint:
-                active = False
-                for window in windows:
-                    w_start = window.start_time
-                    w_end = window.end_time
-                    is_enable = window.enabled
-                    if window.tenant_id != alert.tenant_id:
-                        continue
-                    # Check active windows
-                    if (
-                        w_start < alert.timestamp
-                        and alert.timestamp < w_end
-                        and w_end > datetime.datetime.utcnow()
-                        and is_enable
-                    ):
-                        logger.info("Checking alert %s in maintenance window %s", alert.id, window.id)
-                        is_in_cel = MaintenanceWindowsBl.evaluate_cel(
-                            window, alert, env, logger, {"tenant_id": alert.tenant_id, "alert_id": alert.id}
-                        )
-                        # Recover source structure
-                        if not isinstance(alert.event.get("source"), list):
-                            alert.event["source"] = [alert.event["source"]]
-                        if is_in_cel:
-                            active = True
-                            set_maintenance_windows_trace(alert, window, session)
-                            logger.info("Alert %s is blocked due to the maintenance window: %s.", alert.id, window.id)
-                            break
-                if not active:
-                    recover_prev_alert_status(alert, session)
-                    fingerprints_to_check.add((alert.tenant_id, alert.fingerprint))
-                    add_audit(
-                        tenant_id=alert.tenant_id,
-                        fingerprint=alert.fingerprint,
-                        user_id="system",
-                        action=ActionType.MAINTENANCE_EXPIRED,
-                        description=(
-                            f"Alert {alert.id} has recover its previous status, "
-                            f"from {alert.event.get('previous_status')} to {alert.event.get('status')}"
-                        ),
+
+            # Process alerts by tenant for better performance
+            for tenant_id in tenant_ids:
+                # Fetch alerts in batches per tenant (limit to avoid memory issues)
+                offset = 0
+                batch_size = 1000
+
+                while True:
+                    alerts_in_maint = get_alerts_by_status(
+                        AlertStatus.MAINTENANCE,
+                        session,
+                        tenant_id=tenant_id,
+                        limit=batch_size,
+                        offset=offset
                     )
+
+                    if not alerts_in_maint:
+                        break
+
+                    logger.info(f"Processing batch of {len(alerts_in_maint)} alerts for tenant {tenant_id}, offset {offset}")
+
+                    for alert in alerts_in_maint:
+                        active = False
+                        # Only check windows for the same tenant
+                        tenant_windows = [w for w in windows if w.tenant_id == tenant_id]
+
+                        for window in tenant_windows:
+                            w_start = window.start_time
+                            w_end = window.end_time
+                            is_enable = window.enabled
+
+                            # Check active windows
+                            if (
+                                w_start < alert.timestamp
+                                and alert.timestamp < w_end
+                                and w_end > datetime.datetime.utcnow()
+                                and is_enable
+                            ):
+                                logger.info("Checking alert %s in maintenance window %s", alert.id, window.id)
+                                is_in_cel = MaintenanceWindowsBl.evaluate_cel(
+                                    window, alert, env, logger, {"tenant_id": alert.tenant_id, "alert_id": alert.id}
+                                )
+                                # Recover source structure
+                                if not isinstance(alert.event.get("source"), list):
+                                    alert.event["source"] = [alert.event["source"]]
+                                if is_in_cel:
+                                    active = True
+                                    set_maintenance_windows_trace(alert, window, session)
+                                    logger.info("Alert %s is blocked due to the maintenance window: %s.", alert.id, window.id)
+                                    break
+
+                        if not active:
+                            recover_prev_alert_status(alert, session)
+                            fingerprints_to_check.add((alert.tenant_id, alert.fingerprint))
+                            add_audit(
+                                tenant_id=alert.tenant_id,
+                                fingerprint=alert.fingerprint,
+                                user_id="system",
+                                action=ActionType.MAINTENANCE_EXPIRED,
+                                description=(
+                                    f"Alert {alert.id} has recover its previous status, "
+                                    f"from {alert.event.get('previous_status')} to {alert.event.get('status')}"
+                                ),
+                            )
+
+                    # Move to next batch
+                    offset += batch_size
+
+                    # Break if we got less than batch_size (last batch)
+                    if len(alerts_in_maint) < batch_size:
+                        break
 
         for (tenant, fp) in fingerprints_to_check:
             with existed_or_new_session(session) as session:
