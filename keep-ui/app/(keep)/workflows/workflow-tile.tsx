@@ -117,9 +117,18 @@ function WorkflowTile({ workflow }: { workflow: Workflow }) {
   const lastExecutions = workflow?.last_executions?.slice(0, 15) || [];
   const lastProviderConfigRequiredExec = lastExecutions.filter(
     (execution) => execution?.status === "providers_not_configured"
-  );
-  const isAllExecutionProvidersConfigured =
+  );  const isAllExecutionProvidersConfigured =
     lastProviderConfigRequiredExec.length === lastExecutions.length;
+
+  // Normalize timestamp: add "Z" only if no timezone info present
+  const normalizeTimestamp = (timestamp: string) => {
+    if (!timestamp) return timestamp;
+    // If already has timezone info (+00:00, Z, or offset), don't add Z
+    if (/[Zz]$|[+-]\d{2}:\d{2}$/.test(timestamp)) {
+      return timestamp;
+    }
+    return timestamp + "Z";
+  };
 
   const customFormatter: Formatter = (
     value: number,
@@ -131,7 +140,7 @@ function WorkflowTile({ workflow }: { workflow: Workflow }) {
     }
 
     const formattedString = formatDistanceToNowStrict(
-      new Date(workflow.last_execution_started + "Z"),
+      new Date(normalizeTimestamp(workflow.last_execution_started)),
       { addSuffix: true }
     );
 
@@ -241,7 +250,7 @@ function WorkflowTile({ workflow }: { workflow: Workflow }) {
                 workflow?.last_execution_started && (
                   <div className="text-gray-500 text-sm text-right cursor-pointer truncate max-w-full mt-2 grow min-w-[max-content]">
                     <TimeAgo
-                      date={workflow?.last_execution_started + "Z"}
+                      date={normalizeTimestamp(workflow?.last_execution_started)}
                       formatter={customFormatter}
                     />
                   </div>
