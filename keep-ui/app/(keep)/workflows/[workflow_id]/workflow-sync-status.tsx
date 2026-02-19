@@ -20,7 +20,7 @@ export function WorkflowSyncStatus({
   const { workflow } = useWorkflowDetail(workflowId, null);
 
   // Normalize timestamp: add "Z" only if no timezone info present
-  const normalizeTimestamp = (timestamp: string | number | null) => {
+  const normalizeTimestamp = (timestamp: string | number | null | undefined) => {
     if (!timestamp || typeof timestamp === "number") return timestamp;
     // If already has timezone info (+00:00, Z, or offset), don't add Z
     if (/[Zz]$|[+-]\d{2}:\d{2}$/.test(timestamp)) {
