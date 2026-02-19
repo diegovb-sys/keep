@@ -1071,7 +1071,11 @@ def get_workflow_executions(
         fail_count = statusGroupbyMap.get("error", 0) + statusGroupbyMap.get(
             "timeout", 0
         )
-        avgDuration = query.with_entities(
+        # Filter out negative and null execution times from avg calculation
+        avgDuration = query.filter(
+            WorkflowExecution.execution_time.isnot(None),
+            WorkflowExecution.execution_time >= 0
+        ).with_entities(
             func.avg(WorkflowExecution.execution_time)
         ).scalar()
         avgDuration = avgDuration if avgDuration else 0.0
