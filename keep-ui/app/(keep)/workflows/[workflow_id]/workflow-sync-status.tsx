@@ -19,7 +19,17 @@ export function WorkflowSyncStatus({
 }: WorkflowSyncStatusProps) {
   const { workflow } = useWorkflowDetail(workflowId, null);
 
-  const lastSavedAt = workflow?.last_updated + "Z" || lastDeployedAt;
+  // Normalize timestamp: add "Z" only if no timezone info present
+  const normalizeTimestamp = (timestamp: string | number | null) => {
+    if (!timestamp || typeof timestamp === "number") return timestamp;
+    // If already has timezone info (+00:00, Z, or offset), don't add Z
+    if (/[Zz]$|[+-]\d{2}:\d{2}$/.test(timestamp)) {
+      return timestamp;
+    }
+    return timestamp + "Z";
+  };
+
+  const lastSavedAt = normalizeTimestamp(workflow?.last_updated) || lastDeployedAt;
   const revision = workflow?.revision;
 
   useEffect(() => {

@@ -223,6 +223,16 @@ export function WorkflowExecutionsTable({
       id: "started",
       header: "Started at",
       cell: ({ row }) => {
+        // Normalize timestamp: add "Z" only if no timezone info present
+        const normalizeTimestamp = (timestamp: string) => {
+          if (!timestamp) return timestamp;
+          // If already has timezone info (+00:00, Z, or offset), don't add Z
+          if (/[Zz]$|[+-]\d{2}:\d{2}$/.test(timestamp)) {
+            return timestamp;
+          }
+          return timestamp + "Z";
+        };
+
         const customFormatter: Formatter = (
           value: number,
           unit: Unit,
@@ -233,7 +243,7 @@ export function WorkflowExecutionsTable({
           }
 
           const formattedString = formatDistanceToNowStrict(
-            new Date(row.original.started + "Z"),
+            new Date(normalizeTimestamp(row.original.started)),
             { addSuffix: true }
           );
 
@@ -245,7 +255,7 @@ export function WorkflowExecutionsTable({
         };
         return (
           <TimeAgo
-            date={row.original.started + "Z"}
+            date={normalizeTimestamp(row.original.started)}
             formatter={customFormatter}
           />
         );
