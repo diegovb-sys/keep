@@ -32,6 +32,22 @@ workflow:
           remove_ptr_from_results: true
 """
 
+# Simple workflow for cache tests - no external providers required
+SIMPLE_CACHE_TEST_WORKFLOW = """
+workflow:
+  id: simple-cache-test
+  name: Simple Cache Test Workflow
+  description: A simple workflow for testing cache functionality
+  triggers:
+    - type: manual
+  steps:
+    - name: mock-step
+      provider:
+        type: mock
+        with:
+          command: echo "test"
+"""
+
 INVALID_WORKFLOW = """
 workflow:
   id: retrieve-cloudwatch-logs
@@ -585,3 +601,125 @@ def test_get_workflow_run_logs_sorted_by_timestamp(db_session):
     for i, log in enumerate(logs):
         if i < len(logs) - 1:
             assert log.timestamp < logs[i + 1].timestamp
+
+
+# =============================================================================
+# WorkflowEntryCache Tests
+# =============================================================================
+
+def test_workflow_cache_avoids_reparsing_when_unchanged(db_session):
+    """
+    Test that the cache avoids re-parsing when the workflow hasn't changed.
+    """
+    from unittest.mock import patch, MagicMock
+    from keep.workflowmanager.workflowstore import WorkflowEntryCache
+    from keep.parser.parser import Parser
+
+    workflow_id = str(uuid4())
+    last_updated = datetime.now(tz=timezone.utc)
+
+    # Create a mock workflow model
+    mock_workflow = MagicMock()
+    mock_workflow.id = workflow_id
+    mock_workflow.workflow_raw = SIMPLE_CACHE_TEST_WORKFLOW
+    mock_workflow.revision = 1
+    mock_workflow.is_test = False
+    mock_workflow.last_updated = last_updated
+    mock_workflow.tenant_id = SINGLE_TENANT_UUID
+
+    parser = Parser()
+
+    # Create cache entry - this will parse once
+    with patch.object(parser, 'parse', wraps=parser.parse) as mock_parse:
+        cache_entry = WorkflowEntryCache(mock_workflow, parser)
+        initial_parse_count = mock_parse.call_count
+        assert initial_parse_count == 1, "Should parse once on initialization"
+
+        # Call get_payload with same last_updated - should NOT re-parse
+        result = cache_entry.get_payload(mock_workflow)
+        assert mock_parse.call_count == 1, "Should not re-parse when workflow unchanged"
+
+        # Call again - still should NOT re-parse
+        result = cache_entry.get_payload(mock_workflow)
+        assert mock_parse.call_count == 1, "Should still not re-parse on subsequent calls"
+
+
+def test_workflow_cache_reparses_when_workflow_updated(db_session):
+    """
+    Test that the cache re-parses when the workflow has been updated.
+    """
+    from unittest.mock import patch, MagicMock
+    from keep.workflowmanager.workflowstore import WorkflowEntryCache
+    from keep.parser.parser import Parser
+
+    workflow_id = str(uuid4())
+    initial_time = datetime.now(tz=timezone.utc)
+
+    # Create a mock workflow model
+    mock_workflow = MagicMock()
+    mock_workflow.id = workflow_id
+    mock_workflow.workflow_raw = SIMPLE_CACHE_TEST_WORKFLOW
+    mock_workflow.revision = 1
+    mock_workflow.is_test = False
+    mock_workflow.last_updated = initial_time
+    mock_workflow.tenant_id = SINGLE_TENANT_UUID
+
+    parser = Parser()
+
+    with patch.object(parser, 'parse', wraps=parser.parse) as mock_parse:
+        cache_entry = WorkflowEntryCache(mock_workflow, parser)
+        assert mock_parse.call_count == 1, "Should parse once on initialization"
+
+        # Simulate workflow update by changing last_updated
+        updated_time = initial_time + timedelta(seconds=10)
+        mock_workflow.last_updated = updated_time
+        mock_workflow.revision = 2
+
+        # Call get_payload - should re-parse because last_updated changed
+        result = cache_entry.get_payload(mock_workflow)
+        assert mock_parse.call_count == 2, "Should re-parse when workflow was updated"
+
+        # Verify that last_modified_saved was updated
+        assert cache_entry.last_modified_saved == updated_time
+
+        # Call again with same time - should NOT re-parse
+        result = cache_entry.get_payload(mock_workflow)
+        assert mock_parse.call_count == 2, "Should not re-parse after cache was updated"
+
+
+def test_workflowstore_uses_cache_correctly(db_session):
+    """
+    Test that WorkflowStore properly uses the cache for repeated get_workflow calls.
+    """
+    from keep.api.core.db import add_or_update_workflow
+
+    workflow_id = str(uuid4())
+
+    # Create a workflow in the database
+    workflow_db = add_or_update_workflow(
+        id=workflow_id,
+        name="test-cache-workflow",
+        tenant_id=SINGLE_TENANT_UUID,
+        description="Test workflow for cache",
+        created_by="test@test.com",
+        updated_by="test@test.com",
+        interval=0,
+        is_disabled=False,
+        workflow_raw=SIMPLE_CACHE_TEST_WORKFLOW,
+    )
+
+    workflowstore = WorkflowStore()
+
+    # First call - should create cache entry
+    workflow1 = workflowstore.get_workflow(SINGLE_TENANT_UUID, workflow_id)
+    assert workflow_id in workflowstore.workflows_payload, "Cache entry should be created"
+
+    # Get the cache entry
+    cache_entry = workflowstore.workflows_payload[workflow_id]
+    original_payload = cache_entry.payload
+
+    # Second call - should use cache
+    workflow2 = workflowstore.get_workflow(SINGLE_TENANT_UUID, workflow_id)
+
+    # The payload object should be the same (not re-parsed)
+    assert cache_entry.payload is original_payload, "Should use cached payload"
