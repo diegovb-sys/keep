@@ -36,10 +36,10 @@ from sqlalchemy.exc import NoResultFound
 class WorkflowEntryCache:
     def __init__(self, workflow: WorkflowModel, parser: Parser):
         self.id = workflow.id
-        self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
-        self.last_modified_saved = workflow.last_updated
         self.tenant_id = workflow.tenant_id
         self.parser = parser
+        self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
+        self.last_modified_saved = workflow.last_updated
 
 
     def get_payload(self, workflow: WorkflowModel) -> Workflow | None:
@@ -52,11 +52,9 @@ class WorkflowEntryCache:
         Returns:
             Workflow | None: _description_
         """
-        if self.last_modified_saved < workflow.last_updated:
+        if self.last_modified_saved != workflow.last_updated:
             self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
-        elif self.last_modified_saved > workflow.last_updated:
-            # This should not happend
-            self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
+            self.last_modified_saved = workflow.last_updated
         return self.payload
 
     def __parse_payload(self, raw: str, revision: int, is_test: bool) -> Workflow:
@@ -197,7 +195,7 @@ class WorkflowStore:
                 status_code=404,
                 detail=f"Workflow {workflow_id} not found",
             )
-        if workflow not in self.workflows_payload:
+        if workflow.id not in self.workflows_payload:
             self.workflows_payload[workflow.id] = WorkflowEntryCache(workflow, self.parser)
         workflow = self.workflows_payload[workflow.id].get_payload(workflow)
         if len(workflow) > 1:
