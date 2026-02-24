@@ -135,7 +135,7 @@ function WorkflowTile({ workflow }: { workflow: Workflow }) {
     unit: Unit,
     suffix: Suffix
   ) => {
-    if (!workflow.last_execution_started && isAllExecutionProvidersConfigured) {
+    if (!workflow.last_execution_started) {
       return "";
     }
 
