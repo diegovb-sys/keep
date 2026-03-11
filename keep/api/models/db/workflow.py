@@ -128,7 +128,7 @@ class WorkflowExecution(SQLModel, table=True):
         default=1
     )  # Add this to track which version was executed
     tenant_id: str = Field(foreign_key="tenant.id")
-    started: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc), index=True)
+    started: datetime = Field(default_factory=lambda: datetime.now(tz=timezone.utc).replace(tzinfo=None), index=True)
     triggered_by: str = Field(sa_column=Column(TEXT))
     status: str = Field(sa_column=Column(TEXT))
     is_running: int = Field(default=1)

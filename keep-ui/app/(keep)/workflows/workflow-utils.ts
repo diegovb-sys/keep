@@ -1,13 +1,22 @@
 import { differenceInSeconds } from "date-fns";
 import { LastWorkflowExecution } from "@/shared/api/workflows";
 
+// Normalize timestamp: add "Z" only if no timezone info present
+const normalizeTimestamp = (timestamp: string) => {
+  if (!timestamp) return timestamp;
+  if (/[Zz]$|[+-]\d{2}:\d{2}$/.test(timestamp)) {
+    return timestamp;
+  }
+  return timestamp + "Z";
+};
+
 export const getLabels = (lastExecutions: LastWorkflowExecution[]) => {
   if (!lastExecutions || (lastExecutions && lastExecutions.length === 0)) {
     return [];
   }
   return lastExecutions?.map((workflowExecution) => {
     let started = workflowExecution?.started
-      ? new Date(workflowExecution?.started + "Z").toLocaleString()
+      ? new Date(normalizeTimestamp(workflowExecution.started)).toLocaleString()
       : "N/A";
     return `${started}(${workflowExecution.status})`;
   });
@@ -23,8 +32,8 @@ export const getDataValues = (lastExecutions: LastWorkflowExecution[]) => {
       workflowExecution?.execution_time === null
     ) {
       return differenceInSeconds(
-        new Date(Date.now().toLocaleString()),
-        new Date(new Date(workflowExecution?.started + "Z").toLocaleString())
+        new Date(),
+        new Date(normalizeTimestamp(workflowExecution.started))
       );
     }
     // If the execution time is 0s, return 0.01 to avoid empty graph bars
