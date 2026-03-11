@@ -142,7 +142,7 @@ class ContextManager:
             secret = secret_manager.read_secret(secret_name=secret_key, is_json=True)
             self.secret_context = secret or {}
         except Exception:
-            self.logger.warning(
+            self.logger.info(
                 "Could not load secrets for workflow",
                 extra={"workflow_id": self.workflow_id, "tenant_id": self.tenant_id},
             )
