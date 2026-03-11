@@ -285,10 +285,17 @@ def custom_serialize(obj: Any) -> Any:
         # For Pydantic models like AlertDto
         # Use model_dump with mode='json' to properly serialize datetime and other types
         try:
-            return obj.model_dump(mode='json')
-        except AttributeError:
-            # Fallback for Pydantic v1
-            return json.loads(obj.json())
+            return obj.model_dump(mode='json')  # Pydantic v2
+        except Exception:
+            pass
+        try:
+            return json.loads(obj.json())  # Pydantic v1 fallback
+        except Exception:
+            pass
+        try:
+            return jsonable_encoder(obj)
+        except Exception:
+            return str(obj)
     elif isinstance(obj, Enum):
         # For enum values
         return obj.value

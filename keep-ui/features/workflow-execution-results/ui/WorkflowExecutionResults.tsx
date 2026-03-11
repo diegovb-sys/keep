@@ -356,7 +356,7 @@ export function WorkflowExecutionResultsInternal({
               />
             </div>
           )}
-          {logs ? (
+          {logs !== undefined && logs !== null ? (
             <div className="flex flex-col gap-4 items-center">
               <Card className="p-0 overflow-hidden">
                 <WorkflowExecutionLogs
@@ -366,7 +366,7 @@ export function WorkflowExecutionResultsInternal({
                   checks={checks}
                   hoveredStep={hoveredStep}
                   selectedStep={selectedStep}
-                  showSkeleton={!executionData || logs.length === 0}
+                  showSkeleton={false}
                 />
               </Card>
               {/* In case not all logs are loaded */}

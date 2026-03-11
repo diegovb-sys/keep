@@ -294,7 +294,9 @@ export function WorkflowExecutionLogs({
       currentGroup.logs.push({ log, result });
     }
 
-    return groupedLogs;
+    // Filter out empty null-id groups created as initialization artifacts
+    // when the first log is a step-start message (prevents blank accordion sections)
+    return groupedLogs.filter((g) => !(g.id === null && g.logs.length === 0));
   }, [logs, results]);
 
   return (
