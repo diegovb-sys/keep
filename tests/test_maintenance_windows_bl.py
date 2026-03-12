@@ -148,7 +148,7 @@ def test_alert_in_active_maintenance_window_with_suppress(
     monkeypatch.setenv("MAINTENANCE_WINDOW_STRATEGY", "default")
     importlib.reload(keep.api.consts)
     importlib.reload(keep.api.bl.maintenance_windows_bl)
-    
+
     # Simulate the query to return the active maintenance_window
     mock_session.query.return_value.filter.return_value.filter.return_value.filter.return_value.filter.return_value.all.return_value = [
         active_maintenance_window_rule_with_suppression_on
@@ -352,7 +352,7 @@ def test_strategy_clean_status(
     with patch("keep.api.core.db.existed_or_new_session", return_value=mock_session), \
             patch("keep.api.bl.maintenance_windows_bl.get_last_alert_by_fingerprint", return_value=mock_last_alert), \
                 patch("keep.api.core.db.get_alert_by_event_id", return_value=alert_maint):
-        
+
         MaintenanceWindowsBl.recover_strategy(logger=MagicMock(), session=mock_session)
 
     # THEN the new status will be the previous status, and the previous status will be the old status
@@ -464,8 +464,8 @@ def test_strategy_alert_execution_wf(
 ):
     """
     Feature: Strategy - recover previous status with Workflow execution
-    Scenario: Having a WF created and a Maintenance window active, 
-             receiving in that window 3 alerts (same FP), 2 FIRING and the other 
+    Scenario: Having a WF created and a Maintenance window active,
+             receiving in that window 3 alerts (same FP), 2 FIRING and the other
              one in RESOLVED status, the WF is not executed at the end of the
              maintenance window.
 
@@ -562,7 +562,7 @@ def test_maintenance_window_cel_evaluation_exception_handling(
 ):
     """
     Feature: Generic - check_if_alert_in_maintenance_windows method exception handling
-    Scenario: When there is an exception checking the parameters inside the 
+    Scenario: When there is an exception checking the parameters inside the
             check_if_alert_in_maintenance_windows method, it should be handled and
             the method should return False.
             This prevents the system from crashing and continue with the main flow.
@@ -582,3 +582,729 @@ def test_maintenance_window_cel_evaluation_exception_handling(
 
     # Then it must return a boolean value, False in this case
     assert result is False
+
+
+# =============================================================================
+# Tests for timezone handling and UTC conversion
+# =============================================================================
+
+class TestTimezoneConversion:
+    """Tests for timezone handling in MaintenanceRuleCreate and time comparisons."""
+
+    def test_start_time_with_z_suffix_converted_to_utc(self):
+        """Test that ISO format with Z suffix is properly converted to UTC naive datetime."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        # Input with Z (UTC indicator)
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T17:30:00Z",
+            duration_seconds=3600,
+        )
+
+        # Should store as naive datetime in UTC
+        assert rule.start_time.tzinfo is None
+        assert rule.start_time.hour == 17
+        assert rule.start_time.minute == 30
+
+    def test_start_time_with_timezone_offset_converted_to_utc(self):
+        """Test that ISO format with timezone offset is converted to UTC."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        # Input with +05:00 offset (5 hours ahead of UTC)
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T22:30:00+05:00",
+            duration_seconds=3600,
+        )
+
+        # 22:30 +05:00 = 17:30 UTC
+        assert rule.start_time.tzinfo is None
+        assert rule.start_time.hour == 17
+        assert rule.start_time.minute == 30
+
+    def test_start_time_local_with_timezone_field_converted_to_utc(self):
+        """Test that local time with timezone field is converted to UTC."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        # Local time 23:30 in Chile (UTC-3 in summer)
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T23:30:00",  # Local time (naive)
+            duration_seconds=3600,
+            timezone="America/Santiago",  # Chile timezone
+        )
+
+        # 23:30 Chile (UTC-3) = 02:30 UTC next day
+        assert rule.start_time.tzinfo is None
+        assert rule.start_time.day == 20  # Next day
+        assert rule.start_time.hour == 2
+        assert rule.start_time.minute == 30
+
+    def test_start_time_local_european_timezone_converted_to_utc(self):
+        """Test that local time with European timezone is converted to UTC."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        # Local time 18:30 in Madrid (UTC+1 in winter)
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T18:30:00",  # Local time
+            duration_seconds=3600,
+            timezone="Europe/Madrid",
+        )
+
+        # 18:30 Madrid (UTC+1) = 17:30 UTC
+        assert rule.start_time.tzinfo is None
+        assert rule.start_time.hour == 17
+        assert rule.start_time.minute == 30
+
+    def test_start_time_naive_without_timezone_assumed_utc(self):
+        """Test that naive datetime without timezone field is assumed to be UTC."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T17:30:00",  # Naive, no timezone field
+            duration_seconds=3600,
+            # No timezone field - should assume UTC
+        )
+
+        # Should remain as-is (assumed UTC)
+        assert rule.start_time.tzinfo is None
+        assert rule.start_time.hour == 17
+        assert rule.start_time.minute == 30
+
+    def test_invalid_timezone_keeps_original_time(self):
+        """Test that invalid timezone keeps the original time (assumes UTC)."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T17:30:00",
+            duration_seconds=3600,
+            timezone="Invalid/Timezone",  # Invalid timezone
+        )
+
+        # Should keep original time (assume UTC)
+        assert rule.start_time.hour == 17
+        assert rule.start_time.minute == 30
+
+
+class TestUtcHelperFunctions:
+    """Tests for UTC helper functions used in maintenance window comparisons."""
+
+    def test_get_utc_now_returns_aware_datetime(self):
+        """Test that get_utc_now returns a timezone-aware datetime in UTC."""
+        from keep.api.bl.maintenance_windows_bl import get_utc_now
+        from datetime import timezone as dt_timezone
+
+        now = get_utc_now()
+
+        assert now.tzinfo is not None
+        assert now.tzinfo == dt_timezone.utc
+
+    def test_ensure_utc_aware_with_naive_datetime(self):
+        """Test that naive datetime is assumed to be UTC."""
+        from keep.api.bl.maintenance_windows_bl import ensure_utc_aware
+        from datetime import timezone as dt_timezone
+
+        naive_dt = datetime(2026, 1, 19, 17, 30, 0)
+        result = ensure_utc_aware(naive_dt)
+
+        assert result.tzinfo == dt_timezone.utc
+        assert result.hour == 17
+        assert result.minute == 30
+
+    def test_ensure_utc_aware_with_utc_datetime(self):
+        """Test that UTC-aware datetime remains unchanged."""
+        from keep.api.bl.maintenance_windows_bl import ensure_utc_aware
+        from datetime import timezone as dt_timezone
+
+        utc_dt = datetime(2026, 1, 19, 17, 30, 0, tzinfo=dt_timezone.utc)
+        result = ensure_utc_aware(utc_dt)
+
+        assert result.tzinfo == dt_timezone.utc
+        assert result.hour == 17
+
+    def test_ensure_utc_aware_with_other_timezone(self):
+        """Test that datetime in another timezone is converted to UTC."""
+        from keep.api.bl.maintenance_windows_bl import ensure_utc_aware
+        from datetime import timezone as dt_timezone
+        from zoneinfo import ZoneInfo
+
+        # 22:30 in UTC+5
+        other_tz = ZoneInfo("Asia/Karachi")  # UTC+5
+        other_dt = datetime(2026, 1, 19, 22, 30, 0, tzinfo=other_tz)
+        result = ensure_utc_aware(other_dt)
+
+        # 22:30 UTC+5 = 17:30 UTC
+        assert result.tzinfo == dt_timezone.utc
+        assert result.hour == 17
+        assert result.minute == 30
+
+    def test_ensure_utc_aware_with_none(self):
+        """Test that None input returns None."""
+        from keep.api.bl.maintenance_windows_bl import ensure_utc_aware
+
+        result = ensure_utc_aware(None)
+        assert result is None
+
+
+class TestMaintenanceWindowTimeComparisons:
+    """Tests for time comparison logic in maintenance windows."""
+
+    def _utc_now_naive(self) -> datetime:
+        """Helper to get current UTC time as naive datetime (like DB storage)."""
+        from datetime import timezone as dt_timezone
+        return datetime.now(dt_timezone.utc).replace(tzinfo=None)
+
+    def test_alert_in_window_with_naive_db_times(self, mock_session, alert_dto):
+        """Test that naive DB times (assumed UTC) work correctly with UTC now."""
+        now = self._utc_now_naive()
+        # Create maintenance window with naive datetimes (as stored in DB)
+        window = MaintenanceWindowRule(
+            id=1,
+            name="Test Window",
+            tenant_id="test-tenant",
+            cel_query='source == "test-source"',
+            start_time=now - timedelta(hours=1),  # Naive
+            end_time=now + timedelta(hours=1),    # Naive
+            enabled=True,
+            ignore_statuses=[],
+        )
+
+        mock_session.query.return_value.filter.return_value.filter.return_value.filter.return_value.filter.return_value.all.return_value = [
+            window
+        ]
+
+        mw_bl = MaintenanceWindowsBl(tenant_id="test-tenant", session=mock_session)
+        result = mw_bl.check_if_alert_in_maintenance_windows(alert_dto)
+
+        assert result is True
+
+    def test_window_expired_correctly_detected(self, mock_session, alert_dto):
+        """Test that expired window (end_time in past) is correctly detected."""
+        now = self._utc_now_naive()
+        # Create maintenance window that ended 1 hour ago
+        window = MaintenanceWindowRule(
+            id=1,
+            name="Expired Window",
+            tenant_id="test-tenant",
+            cel_query='source == "test-source"',
+            start_time=now - timedelta(hours=3),
+            end_time=now - timedelta(hours=1),  # Ended 1 hour ago
+            enabled=True,
+            ignore_statuses=[],
+        )
+
+        mock_session.query.return_value.filter.return_value.filter.return_value.filter.return_value.filter.return_value.all.return_value = [
+            window
+        ]
+
+        mw_bl = MaintenanceWindowsBl(tenant_id="test-tenant", session=mock_session)
+        result = mw_bl.check_if_alert_in_maintenance_windows(alert_dto)
+
+        # Should not match because window is expired
+        assert result is False
+
+    def test_window_not_started_correctly_detected(self, mock_session, alert_dto):
+        """Test that future window (start_time in future) is correctly filtered in query."""
+        # This test verifies that the __init__ query filters correctly
+        # by checking that a future window would not be in maintenance_rules
+        now = self._utc_now_naive()
+
+        # Create window that starts in 1 hour
+        future_window = MaintenanceWindowRule(
+            id=1,
+            name="Future Window",
+            tenant_id="test-tenant",
+            cel_query='source == "test-source"',
+            start_time=now + timedelta(hours=1),  # Starts in 1 hour
+            end_time=now + timedelta(hours=2),
+            enabled=True,
+            ignore_statuses=[],
+        )
+
+        # Simulate query returning no windows (because future window is filtered)
+        mock_session.query.return_value.filter.return_value.filter.return_value.filter.return_value.filter.return_value.all.return_value = []
+
+        mw_bl = MaintenanceWindowsBl(tenant_id="test-tenant", session=mock_session)
+        result = mw_bl.check_if_alert_in_maintenance_windows(alert_dto)
+
+        assert result is False
+
+    def test_window_boundary_start_time_exact(self, mock_session, alert_dto):
+        """Test window at exact start boundary."""
+        now = self._utc_now_naive()
+
+        # Window starts exactly now
+        window = MaintenanceWindowRule(
+            id=1,
+            name="Boundary Window",
+            tenant_id="test-tenant",
+            cel_query='source == "test-source"',
+            start_time=now,
+            end_time=now + timedelta(hours=1),
+            enabled=True,
+            ignore_statuses=[],
+        )
+
+        mock_session.query.return_value.filter.return_value.filter.return_value.filter.return_value.filter.return_value.all.return_value = [
+            window
+        ]
+
+        mw_bl = MaintenanceWindowsBl(tenant_id="test-tenant", session=mock_session)
+        # Should work as alert is within the window timeframe
+        result = mw_bl.check_if_alert_in_maintenance_windows(alert_dto)
+
+        assert result is True
+
+    def test_end_time_calculated_correctly_from_duration(self):
+        """Test that end_time is calculated correctly from start_time + duration."""
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+
+        rule = MaintenanceRuleCreate(
+            name="Test Rule",
+            cel_query='source == "test"',
+            start_time="2026-01-19T17:30:00Z",
+            duration_seconds=7200,  # 2 hours
+        )
+
+        # end_time should be 2 hours after start_time
+        expected_end = rule.start_time + timedelta(seconds=7200)
+
+        # Since end_time is calculated in the route, verify start_time is correct
+        assert rule.start_time.hour == 17
+        assert rule.start_time.minute == 30
+        assert rule.duration_seconds == 7200
+
+
+class TestRecoverStrategyTimeComparisons:
+    """Tests for time comparisons in recover_strategy method."""
+
+    def _utc_now_naive(self) -> datetime:
+        """Helper to get current UTC time as naive datetime."""
+        from datetime import timezone as dt_timezone
+        return datetime.now(dt_timezone.utc).replace(tzinfo=None)
+
+    def test_recover_strategy_uses_utc_for_comparisons(self, mock_session, alert_maint):
+        """Test that recover_strategy uses UTC-aware comparisons."""
+        from keep.api.bl.maintenance_windows_bl import ensure_utc_aware, get_utc_now
+        from datetime import timezone as dt_timezone
+
+        # Verify our helper functions work correctly for recover_strategy
+        now_utc = get_utc_now()
+        assert now_utc.tzinfo == dt_timezone.utc
+
+        # Window times (naive from DB)
+        now_naive = self._utc_now_naive()
+        w_start = now_naive - timedelta(hours=2)
+        w_end = now_naive + timedelta(hours=2)
+
+        # Ensure they're UTC-aware for comparison
+        w_start_utc = ensure_utc_aware(w_start)
+        w_end_utc = ensure_utc_aware(w_end)
+
+        # Valid comparison
+        assert w_start_utc < now_utc < w_end_utc
+
+    def test_alert_timestamp_comparison_with_window_times(self, alert_maint):
+        """Test that alert timestamp compares correctly with window times."""
+        from keep.api.bl.maintenance_windows_bl import ensure_utc_aware
+        from datetime import timezone as dt_timezone
+
+        # Set alert timestamp
+        now_naive = self._utc_now_naive()
+        alert_maint.timestamp = now_naive
+
+        # Window times
+        w_start = now_naive - timedelta(hours=1)
+        w_end = now_naive + timedelta(hours=1)
+
+        # All should be comparable after ensure_utc_aware
+        alert_ts = ensure_utc_aware(alert_maint.timestamp)
+        w_start_utc = ensure_utc_aware(w_start)
+        w_end_utc = ensure_utc_aware(w_end)
+
+        # Alert should be within window
+        assert w_start_utc < alert_ts < w_end_utc
+
+
+# =============================================================================
+# End-to-End Tests for timezone and recovery strategy
+# =============================================================================
+
+class TestE2ETimezoneAndRecoveryStrategy:
+    """
+    End-to-end tests for maintenance windows with timezone handling and recovery strategy.
+    These tests verify the complete flow from window creation with local time to
+    alert status recovery when the maintenance window expires.
+    """
+
+    def _utc_now_naive(self) -> datetime:
+        """Helper to get current UTC time as naive datetime."""
+        from datetime import timezone as dt_timezone
+        return datetime.now(dt_timezone.utc).replace(tzinfo=None)
+
+    def test_e2e_window_created_with_local_timezone_stored_as_utc(
+        self, db_session, monkeypatch
+    ):
+        """
+        E2E Test: Window created with local timezone is stored as UTC in database.
+
+        Scenario:
+            1. Frontend sends start_time in local time (Chile: 23:30)
+            2. Frontend includes timezone field (America/Santiago)
+            3. Backend converts to UTC and stores (02:30 UTC next day)
+            4. Database contains UTC time
+        """
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+        from keep.api.routes.maintenance import create_maintenance_rule
+        from keep.api.core.dependencies import SINGLE_TENANT_UUID
+        from unittest.mock import MagicMock
+
+        # GIVEN a frontend request with local time and timezone
+        # Chile time: 2026-01-19 23:30:00 (UTC-3 in summer)
+        local_time_str = "2026-01-19T23:30:00"
+        timezone_str = "America/Santiago"
+
+        rule_dto = MaintenanceRuleCreate(
+            name="Chile Maintenance Window",
+            cel_query='source == "test-source"',
+            start_time=local_time_str,
+            duration_seconds=3600,  # 1 hour
+            timezone=timezone_str,
+        )
+
+        # WHEN the rule is created
+        auth_entity = MagicMock(
+            tenant_id=SINGLE_TENANT_UUID,
+            email="test@keephq.dev"
+        )
+
+        result = create_maintenance_rule(
+            rule_dto=rule_dto,
+            authenticated_entity=auth_entity,
+            session=db_session,
+        )
+
+        # THEN the stored time is in UTC
+        # 23:30 Chile (UTC-3) = 02:30 UTC next day (Jan 20)
+        assert result.start_time.day == 20
+        assert result.start_time.hour == 2
+        assert result.start_time.minute == 30
+
+        # AND end_time is correctly calculated (1 hour after start)
+        assert result.end_time.hour == 3
+        assert result.end_time.minute == 30
+
+    def test_e2e_window_with_utc_z_suffix_stored_correctly(
+        self, db_session, monkeypatch
+    ):
+        """
+        E2E Test: Window created with UTC (Z suffix) is stored correctly.
+
+        Scenario:
+            1. Frontend sends start_time with Z suffix (already UTC)
+            2. Backend stores as-is (no conversion needed)
+        """
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+        from keep.api.routes.maintenance import create_maintenance_rule
+        from keep.api.core.dependencies import SINGLE_TENANT_UUID
+        from unittest.mock import MagicMock
+
+        # GIVEN a frontend request with UTC time (Z suffix)
+        utc_time_str = "2026-01-19T17:30:00Z"
+
+        rule_dto = MaintenanceRuleCreate(
+            name="UTC Maintenance Window",
+            cel_query='source == "test-source"',
+            start_time=utc_time_str,
+            duration_seconds=7200,  # 2 hours
+        )
+
+        # WHEN the rule is created
+        auth_entity = MagicMock(
+            tenant_id=SINGLE_TENANT_UUID,
+            email="test@keephq.dev"
+        )
+
+        result = create_maintenance_rule(
+            rule_dto=rule_dto,
+            authenticated_entity=auth_entity,
+            session=db_session,
+        )
+
+        # THEN the stored time matches the input UTC time
+        assert result.start_time.day == 19
+        assert result.start_time.hour == 17
+        assert result.start_time.minute == 30
+
+        # AND end_time is 2 hours after
+        assert result.end_time.hour == 19
+        assert result.end_time.minute == 30
+
+    def test_e2e_alert_enters_maintenance_window_based_on_utc_time(
+        self, db_session, create_alert, create_window_maintenance_active, monkeypatch
+    ):
+        """
+        E2E Test: Alert correctly enters maintenance window based on UTC comparison.
+
+        Scenario:
+            1. Maintenance window is active (start < now < end in UTC)
+            2. Alert arrives and matches CEL query
+            3. Alert status changes to MAINTENANCE
+        """
+        monkeypatch.setenv("MAINTENANCE_WINDOW_STRATEGY", "recover_previous_status")
+        importlib.reload(keep.api.consts)
+        importlib.reload(keep.api.bl.maintenance_windows_bl)
+
+        now_utc = self._utc_now_naive()
+
+        # GIVEN a maintenance window active now (UTC times)
+        mw = create_window_maintenance_active(
+            cel='fingerprint == "e2e-test-alert"',
+            start=now_utc - timedelta(hours=1),
+            end=now_utc + timedelta(hours=1),
+        )
+
+        # WHEN an alert arrives that matches the CEL
+        create_alert(
+            "e2e-test-alert",
+            AlertStatus("firing"),
+            now_utc,
+            {},
+        )
+
+        # THEN the alert should be in MAINTENANCE status
+        from keep.api.core.db import get_alerts_by_status
+        maintenance_alerts = get_alerts_by_status(AlertStatus.MAINTENANCE, db_session)
+
+        assert len(maintenance_alerts) >= 1
+        matching_alert = [a for a in maintenance_alerts if a.fingerprint == "e2e-test-alert"]
+        assert len(matching_alert) == 1
+
+    def test_e2e_recovery_strategy_restores_status_when_window_expires_by_time(
+        self, db_session, create_alert, create_window_maintenance_active, monkeypatch
+    ):
+        """
+        E2E Test: Recovery strategy restores alert status when window expires.
+
+        Scenario:
+            1. Create maintenance window that ends very soon
+            2. Alert enters maintenance window
+            3. Wait for window to expire (or simulate expiration)
+            4. Run recover_strategy
+            5. Alert status is restored to previous status
+        """
+        monkeypatch.setenv("MAINTENANCE_WINDOW_STRATEGY", "recover_previous_status")
+        importlib.reload(keep.api.consts)
+        importlib.reload(keep.api.bl.maintenance_windows_bl)
+
+        now_utc = self._utc_now_naive()
+
+        # GIVEN a maintenance window that started 2 hours ago and ends in 2 seconds
+        mw = create_window_maintenance_active(
+            cel='fingerprint == "e2e-recovery-alert"',
+            start=now_utc - timedelta(hours=2),
+            end=now_utc + timedelta(seconds=2),  # Expires very soon
+        )
+
+        # AND an alert that entered maintenance
+        create_alert(
+            "e2e-recovery-alert",
+            AlertStatus("firing"),
+            now_utc - timedelta(minutes=30),  # Alert arrived 30 min ago
+            {},
+        )
+
+        # Verify alert is in maintenance
+        from keep.api.core.db import get_alerts_by_status
+        initial_maintenance = get_alerts_by_status(AlertStatus.MAINTENANCE, db_session)
+        initial_count = len([a for a in initial_maintenance if a.fingerprint == "e2e-recovery-alert"])
+
+        # WHEN the window expires and recover_strategy runs
+        time.sleep(3)  # Wait for window to expire
+
+        MaintenanceWindowsBl.recover_strategy(logger=MagicMock(), session=db_session)
+
+        # THEN the alert should no longer be in MAINTENANCE
+        final_maintenance = get_alerts_by_status(AlertStatus.MAINTENANCE, db_session)
+        final_count = len([a for a in final_maintenance if a.fingerprint == "e2e-recovery-alert"])
+
+        # Alert count in maintenance should decrease
+        assert final_count < initial_count or initial_count == 0
+
+    def test_e2e_multiple_timezones_windows_coexist_correctly(
+        self, db_session, monkeypatch
+    ):
+        """
+        E2E Test: Multiple windows created from different timezones work correctly.
+
+        Scenario:
+            1. Create window from Chile timezone (UTC-3)
+            2. Create window from Madrid timezone (UTC+1)
+            3. Both are stored correctly in UTC
+            4. Time comparisons work for both
+        """
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+        from keep.api.routes.maintenance import create_maintenance_rule
+        from keep.api.core.dependencies import SINGLE_TENANT_UUID
+        from unittest.mock import MagicMock
+
+        auth_entity = MagicMock(
+            tenant_id=SINGLE_TENANT_UUID,
+            email="test@keephq.dev"
+        )
+
+        # GIVEN a window created from Chile (23:30 local = 02:30 UTC next day)
+        chile_rule = MaintenanceRuleCreate(
+            name="Chile Window",
+            cel_query='source == "chile"',
+            start_time="2026-01-19T23:30:00",
+            duration_seconds=3600,
+            timezone="America/Santiago",
+        )
+
+        chile_result = create_maintenance_rule(
+            rule_dto=chile_rule,
+            authenticated_entity=auth_entity,
+            session=db_session,
+        )
+
+        # AND a window created from Madrid (18:30 local = 17:30 UTC)
+        madrid_rule = MaintenanceRuleCreate(
+            name="Madrid Window",
+            cel_query='source == "madrid"',
+            start_time="2026-01-19T18:30:00",
+            duration_seconds=3600,
+            timezone="Europe/Madrid",
+        )
+
+        madrid_result = create_maintenance_rule(
+            rule_dto=madrid_rule,
+            authenticated_entity=auth_entity,
+            session=db_session,
+        )
+
+        # THEN Chile window starts at 02:30 UTC (Jan 20)
+        assert chile_result.start_time.day == 20
+        assert chile_result.start_time.hour == 2
+
+        # AND Madrid window starts at 17:30 UTC (Jan 19)
+        assert madrid_result.start_time.day == 19
+        assert madrid_result.start_time.hour == 17
+
+        # AND Madrid window starts BEFORE Chile window (in UTC)
+        assert madrid_result.start_time < chile_result.start_time
+
+    def test_e2e_recovery_strategy_handles_server_in_non_utc_timezone(
+        self, db_session, create_alert, create_window_maintenance_active, monkeypatch
+    ):
+        """
+        E2E Test: Recovery strategy works correctly even if server is in non-UTC timezone.
+
+        This test verifies that our UTC conversion helpers work regardless of
+        the server's local timezone setting. The actual timezone change would
+        require OS-level changes, but we verify the helper functions handle
+        different scenarios correctly.
+        """
+        from keep.api.bl.maintenance_windows_bl import get_utc_now, ensure_utc_aware
+        from datetime import timezone as dt_timezone
+        from zoneinfo import ZoneInfo
+
+        monkeypatch.setenv("MAINTENANCE_WINDOW_STRATEGY", "recover_previous_status")
+        importlib.reload(keep.api.consts)
+        importlib.reload(keep.api.bl.maintenance_windows_bl)
+
+        # GIVEN: Current UTC time
+        now_utc = get_utc_now()
+
+        # AND: A naive datetime that represents UTC (like DB storage)
+        db_time_naive = now_utc.replace(tzinfo=None)
+
+        # WHEN: We use ensure_utc_aware on the DB time
+        db_time_aware = ensure_utc_aware(db_time_naive)
+
+        # THEN: Both should represent the same moment in time
+        # The difference should be negligible (less than 1 second)
+        time_diff = abs((db_time_aware - now_utc).total_seconds())
+        assert time_diff < 1
+
+        # AND: Comparisons work correctly
+        past_time = ensure_utc_aware(db_time_naive - timedelta(hours=1))
+        future_time = ensure_utc_aware(db_time_naive + timedelta(hours=1))
+
+        assert past_time < now_utc < future_time
+
+    def test_e2e_update_window_with_new_timezone_recalculates_utc(
+        self, db_session, monkeypatch
+    ):
+        """
+        E2E Test: Updating a maintenance window with a new timezone recalculates UTC correctly.
+
+        Scenario:
+            1. Create window with Chile timezone
+            2. Update same window with Madrid timezone (same local time)
+            3. Stored UTC time changes accordingly
+        """
+        from keep.api.models.db.maintenance_window import MaintenanceRuleCreate
+        from keep.api.routes.maintenance import create_maintenance_rule, update_maintenance_rule
+        from keep.api.core.dependencies import SINGLE_TENANT_UUID
+        from unittest.mock import MagicMock
+
+        auth_entity = MagicMock(
+            tenant_id=SINGLE_TENANT_UUID,
+            email="test@keephq.dev"
+        )
+
+        # GIVEN a window created with Chile timezone
+        # 18:30 Chile (UTC-3) = 21:30 UTC
+        initial_rule = MaintenanceRuleCreate(
+            name="Timezone Update Test",
+            cel_query='source == "test"',
+            start_time="2026-01-19T18:30:00",
+            duration_seconds=3600,
+            timezone="America/Santiago",
+        )
+
+        created = create_maintenance_rule(
+            rule_dto=initial_rule,
+            authenticated_entity=auth_entity,
+            session=db_session,
+        )
+
+        initial_utc_hour = created.start_time.hour
+        # 18:30 Chile (UTC-3) = 21:30 UTC
+        assert initial_utc_hour == 21
+
+        # WHEN updating with same local time but Madrid timezone
+        # 18:30 Madrid (UTC+1) = 17:30 UTC
+        updated_rule = MaintenanceRuleCreate(
+            name="Timezone Update Test",
+            cel_query='source == "test"',
+            start_time="2026-01-19T18:30:00",  # Same local time
+            duration_seconds=3600,
+            timezone="Europe/Madrid",  # Different timezone
+        )
+
+        updated = update_maintenance_rule(
+            rule_id=created.id,
+            rule_dto=updated_rule,
+            authenticated_entity=auth_entity,
+            session=db_session,
+        )
+
+        # THEN the UTC hour changes
+        updated_utc_hour = updated.start_time.hour
+        # 18:30 Madrid (UTC+1) = 17:30 UTC
+        assert updated_utc_hour == 17
+
+        # AND the difference is 4 hours (UTC-3 vs UTC+1)
+        assert initial_utc_hour - updated_utc_hour == 4

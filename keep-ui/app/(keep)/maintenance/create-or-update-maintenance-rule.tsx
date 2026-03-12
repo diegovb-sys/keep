@@ -57,7 +57,7 @@ export default function CreateOrUpdateMaintenanceRule({
       setMaintenanceName(maintenanceToEdit.name);
       setDescription(maintenanceToEdit.description ?? "");
       setCelQuery(maintenanceToEdit.cel_query);
-      setStartTime(new Date(maintenanceToEdit.start_time));
+      setStartTime(new Date(maintenanceToEdit.start_time + "Z"));
       setSuppress(maintenanceToEdit.suppress);
       setEnabled(maintenanceToEdit.enabled);
       setIgnoreStatuses(maintenanceToEdit.ignore_statuses);
@@ -100,6 +100,22 @@ export default function CreateOrUpdateMaintenanceRule({
     return durationInSeconds;
   };
 
+  // Format date as local time ISO string (without Z suffix)
+  const formatLocalDateTime = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+  };
+
+  // Get the user's local timezone
+  const getUserTimezone = (): string => {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone;
+  };
+
   const addMaintenanceRule = async (e: FormEvent) => {
     e.preventDefault();
     try {
@@ -107,11 +123,12 @@ export default function CreateOrUpdateMaintenanceRule({
         name: maintenanceName,
         description: description,
         cel_query: celQuery,
-        start_time: startTime,
+        start_time: startTime ? formatLocalDateTime(startTime) : null,
         duration_seconds: calculateDurationInSeconds(),
         suppress: suppress,
         enabled: enabled,
         ignore_statuses: ignoreStatuses,
+        timezone: getUserTimezone(),
       });
       clearForm();
       mutate();
@@ -132,11 +149,12 @@ export default function CreateOrUpdateMaintenanceRule({
         name: maintenanceName,
         description: description,
         cel_query: celQuery,
-        start_time: startTime,
+        start_time: startTime ? formatLocalDateTime(startTime) : null,
         duration_seconds: calculateDurationInSeconds(),
         suppress: suppress,
         enabled: enabled,
         ignore_statuses: ignoreStatuses,
+        timezone: getUserTimezone(),
       });
       exitEditMode();
       mutate();
