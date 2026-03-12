@@ -7,6 +7,7 @@ import {
   TableHead,
   TableHeaderCell,
   TableRow,
+  Switch,
 } from "@tremor/react";
 import {
   DisplayColumnDef,
@@ -21,7 +22,7 @@ import { toast } from "react-toastify";
 import { MaintenanceRule } from "./model";
 import { IoCheckmark } from "react-icons/io5";
 import { HiMiniXMark } from "react-icons/hi2";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useApi } from "@/shared/lib/hooks/useApi";
 import { showErrorToast } from "@/shared/ui";
 
@@ -39,6 +40,22 @@ export default function MaintenanceRulesTable({
   const api = useApi();
 
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [showAll, setShowAll] = useState(false);
+
+  // Filter rules: by default show only active/upcoming windows
+  const filteredRules = useMemo(() => {
+    if (showAll) return maintenanceRules;
+
+    const now = new Date();
+    return maintenanceRules.filter(rule => {
+      // Show if enabled and hasn't ended yet (or has no end time)
+      if (!rule.enabled) return false;
+      if (!rule.end_time) return true;
+
+      const endTime = new Date(rule.end_time + "Z");
+      return endTime > now;
+    });
+  }, [maintenanceRules, showAll]);
 
   const columns = [
     columnHelper.display({
@@ -88,7 +105,18 @@ export default function MaintenanceRulesTable({
     columnHelper.display({
       id: "CEL",
       header: "CEL",
-      cell: (context) => context.row.original.cel_query,
+      cell: (context) => {
+        const cel = context.row.original.cel_query;
+        const maxLength = 50;
+        if (cel.length > maxLength) {
+          return (
+            <span title={cel} className="cursor-help">
+              {cel.substring(0, maxLength)}...
+            </span>
+          );
+        }
+        return cel;
+      },
     }),
     columnHelper.display({
       id: "end_time",
@@ -116,7 +144,7 @@ export default function MaintenanceRulesTable({
   const table = useReactTable({
     getRowId: (row) => row.id.toString(),
     columns,
-    data: maintenanceRules,
+    data: filteredRules,
     state: { expanded },
     getCoreRowModel: getCoreRowModel(),
     onExpandedChange: setExpanded,
@@ -135,9 +163,33 @@ export default function MaintenanceRulesTable({
     }
   };
 
+  const hiddenCount = maintenanceRules.length - filteredRules.length;
+
   return (
-    <Table>
-      <TableHead>
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <span className="text-sm text-gray-600 dark:text-gray-400">
+            Showing {filteredRules.length} of {maintenanceRules.length} rules
+          </span>
+          {hiddenCount > 0 && !showAll && (
+            <span className="text-xs text-orange-600 dark:text-orange-400">
+              ({hiddenCount} inactive/past rules hidden)
+            </span>
+          )}
+        </div>
+        <div className="flex items-center space-x-2">
+          <label className="text-sm text-gray-600 dark:text-gray-400">
+            Show all rules
+          </label>
+          <Switch
+            checked={showAll}
+            onChange={setShowAll}
+          />
+        </div>
+      </div>
+      <Table>
+        <TableHead>
         {table.getHeaderGroups().map((headerGroup) => (
           <TableRow
             className="border-b border-tremor-border dark:border-dark-tremor-border"
@@ -174,27 +226,35 @@ export default function MaintenanceRulesTable({
             {row.getIsExpanded() && (
               <TableRow className="pl-2.5">
                 <TableCell colSpan={columns.length}>
-                  <div className="flex space-x-2 divide-x">
-                    <div className="flex items-center space-x-2">
-                      <span className="font-bold">Created By:</span>
-                      <span>{row.original.created_by}</span>
+                  <div className="flex flex-col space-y-2">
+                    <div className="flex space-x-2 divide-x">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-bold">Created By:</span>
+                        <span>{row.original.created_by}</span>
+                      </div>
+                      {row.original.updated_at && (
+                        <>
+                          <div className="flex items-center space-x-2 pl-2.5">
+                            <span className="font-bold">Updated At:</span>
+                            <span>
+                              {new Date(
+                                row.original.updated_at + "Z"
+                              ).toLocaleString()}
+                            </span>
+                          </div>
+                          <div className="flex items-center space-x-2 pl-2.5">
+                            <span className="font-bold">Enabled:</span>
+                            <span>{row.original.enabled ? "Yes" : "No"}</span>
+                          </div>
+                        </>
+                      )}
                     </div>
-                    {row.original.updated_at && (
-                      <>
-                        <div className="flex items-center space-x-2 pl-2.5">
-                          <span className="font-bold">Updated At:</span>
-                          <span>
-                            {new Date(
-                              row.original.updated_at + "Z"
-                            ).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="flex items-center space-x-2 pl-2.5">
-                          <span className="font-bold">Enabled:</span>
-                          <span>{row.original.enabled ? "Yes" : "No"}</span>
-                        </div>
-                      </>
-                    )}
+                    <div className="flex flex-col space-y-1">
+                      <span className="font-bold">CEL Query:</span>
+                      <pre className="text-xs bg-gray-50 dark:bg-gray-800 p-2 rounded overflow-x-auto">
+                        {row.original.cel_query}
+                      </pre>
+                    </div>
                   </div>
                 </TableCell>
               </TableRow>
@@ -203,5 +263,6 @@ export default function MaintenanceRulesTable({
         ))}
       </TableBody>
     </Table>
+    </div>
   );
 }
