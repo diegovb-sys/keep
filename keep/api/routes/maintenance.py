@@ -45,8 +45,10 @@ def create_maintenance_rule(
     session: Session = Depends(get_session),
 ) -> MaintenanceRuleRead:
     end_time = rule_dto.start_time + timedelta(seconds=rule_dto.duration_seconds)
+    # Exclude timezone field as it's only used for conversion, not stored in DB
+    rule_data = rule_dto.dict(exclude={"timezone"})
     new_rule = MaintenanceWindowRule(
-        **rule_dto.dict(),
+        **rule_data,
         end_time=end_time,
         created_by=authenticated_entity.email,
         tenant_id=authenticated_entity.tenant_id,
@@ -83,7 +85,9 @@ def update_maintenance_rule(
             status_code=404, detail="Maintenance rule not found or access denied"
         )
 
-    for key, value in rule_dto.dict().items():
+    # Exclude timezone field as it's only used for conversion, not stored in DB
+    rule_data = rule_dto.dict(exclude={"timezone"})
+    for key, value in rule_data.items():
         setattr(rule, key, value)
 
     end_time = rule_dto.start_time + timedelta(seconds=rule_dto.duration_seconds)

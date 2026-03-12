@@ -1,6 +1,7 @@
 import datetime
 import json
 import logging
+from datetime import timezone as dt_timezone
 
 import celpy
 from sqlmodel import Session
@@ -31,18 +32,47 @@ from keep.workflowmanager.workflowmanager import WorkflowManager
 
 tracer = trace.get_tracer(__name__)
 
+
+def get_utc_now() -> datetime.datetime:
+    """
+    Get the current time in UTC as an aware datetime.
+    This works correctly regardless of the server's local timezone.
+    """
+    return datetime.datetime.now(dt_timezone.utc)
+
+
+def ensure_utc_aware(dt: datetime.datetime) -> datetime.datetime:
+    """
+    Ensure a datetime is UTC-aware.
+    If the datetime is naive (no tzinfo), assume it represents UTC and add tzinfo.
+    If it already has tzinfo, convert it to UTC.
+
+    This is useful for comparing DB times (stored as UTC but may be naive)
+    with the current time.
+    """
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        # Naive datetime - assume it's UTC
+        return dt.replace(tzinfo=dt_timezone.utc)
+    else:
+        # Already has timezone info - convert to UTC
+        return dt.astimezone(dt_timezone.utc)
+
+
 class MaintenanceWindowsBl:
 
     def __init__(self, tenant_id: str, session: Session | None) -> None:
         self.logger = logging.getLogger(__name__)
         self.tenant_id = tenant_id
         self.session = session if session else get_session_sync()
+        now_utc = get_utc_now()
         self.maintenance_rules: list[MaintenanceWindowRule] = (
             self.session.query(MaintenanceWindowRule)
             .filter(MaintenanceWindowRule.tenant_id == tenant_id)
             .filter(MaintenanceWindowRule.enabled == True)
-            .filter(MaintenanceWindowRule.end_time >= datetime.datetime.now(datetime.UTC))
-            .filter(MaintenanceWindowRule.start_time <= datetime.datetime.now(datetime.UTC))
+            .filter(MaintenanceWindowRule.end_time >= now_utc.replace(tzinfo=None))
+            .filter(MaintenanceWindowRule.start_time <= now_utc.replace(tzinfo=None))
             .all()
         )
 
@@ -68,7 +98,11 @@ class MaintenanceWindowsBl:
                     )
                     continue
 
-                if maintenance_rule.end_time.replace(tzinfo=datetime.UTC) <= datetime.datetime.now(datetime.UTC):
+                # Compare times in UTC - ensure both are UTC-aware for correct comparison
+                rule_end_time_utc = ensure_utc_aware(maintenance_rule.end_time)
+                now_utc = get_utc_now()
+
+                if rule_end_time_utc <= now_utc:
                     # this is wtf error, should not happen because of query in init
                     self.logger.error(
                         "Fetched maintenance window which already ended by mistake, should not happen!"
@@ -220,15 +254,17 @@ class MaintenanceWindowsBl:
                         tenant_windows = [w for w in windows if w.tenant_id == tenant_id]
 
                         for window in tenant_windows:
-                            w_start = window.start_time
-                            w_end = window.end_time
+                            w_start = ensure_utc_aware(window.start_time)
+                            w_end = ensure_utc_aware(window.end_time)
+                            alert_timestamp = ensure_utc_aware(alert.timestamp)
+                            now_utc = get_utc_now()
                             is_enable = window.enabled
 
-                            # Check active windows
+                            # Check active windows - all times are now UTC-aware
                             if (
-                                w_start < alert.timestamp
-                                and alert.timestamp < w_end
-                                and w_end > datetime.datetime.utcnow()
+                                w_start < alert_timestamp
+                                and alert_timestamp < w_end
+                                and w_end > now_utc
                                 and is_enable
                             ):
                                 logger.info("Checking alert %s in maintenance window %s", alert.id, window.id)
