@@ -5,8 +5,6 @@ Db2Provider is a class that provides a way to read data from IBM DB2 and write q
 import dataclasses
 import datetime
 import os
-import ibm_db
-import ibm_db_dbi
 import pydantic
 
 from keep.contextmanager.contextmanager import ContextManager
@@ -14,6 +12,11 @@ from keep.providers.base.base_provider import BaseProvider
 from keep.providers.models.provider_config import ProviderConfig, ProviderScope
 from keep.providers.models.provider_method import ProviderMethod
 from keep.validation.fields import NoSchemeUrl, UrlPort
+
+
+# Lazy import of ibm_db to avoid fork issues with gunicorn workers
+# ibm_db is a C extension that doesn't work well with process forking
+# We use lazy loading so each worker process imports its own clean copy after forking
 
 
 @pydantic.dataclasses.dataclass
@@ -82,12 +85,32 @@ class Db2Provider(BaseProvider):
     ):
         super().__init__(context_manager, provider_id, config)
         self.conn = None
+        # Lazy loading: modules are imported only when first needed
+        self._ibm_db = None
+        self._ibm_db_dbi = None
+
+    def _ensure_modules_loaded(self):
+        """
+        Lazy loads ibm_db modules only when first needed.
+        This avoids fork issues with gunicorn workers since the C extension
+        is imported in the worker process, not in the parent before forking.
+
+        Returns:
+            tuple: (ibm_db, ibm_db_dbi) modules
+        """
+        if self._ibm_db is None:
+            import ibm_db
+            import ibm_db_dbi
+            self._ibm_db = ibm_db
+            self._ibm_db_dbi = ibm_db_dbi
+        return self._ibm_db, self._ibm_db_dbi
 
     def validate_scopes(self):
         """
         Validates that the user has the required scopes to use the provider.
         """
         try:
+            ibm_db, _ = self._ensure_modules_loaded()
             conn = self.__generate_connection()
             ibm_db.close(conn)
             scopes = {
@@ -110,6 +133,8 @@ class Db2Provider(BaseProvider):
         Returns:
             ibm_db connection object
         """
+        ibm_db, _ = self._ensure_modules_loaded()
+
         # Build connection string
         conn_str = (
             f"DATABASE={self.authentication_config.database};"
@@ -126,6 +151,7 @@ class Db2Provider(BaseProvider):
     def dispose(self):
         try:
             if self.conn:
+                ibm_db, _ = self._ensure_modules_loaded()
                 ibm_db.close(self.conn)
         except Exception:
             self.logger.exception("Error closing DB2 connection")
@@ -163,6 +189,8 @@ class Db2Provider(BaseProvider):
         """
         if not query:
             raise ValueError("Query is required")
+
+        ibm_db, ibm_db_dbi = self._ensure_modules_loaded()
 
         conn = self.__generate_connection()
 
