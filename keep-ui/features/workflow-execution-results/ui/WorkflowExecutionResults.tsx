@@ -366,7 +366,7 @@ export function WorkflowExecutionResultsInternal({
                   checks={checks}
                   hoveredStep={hoveredStep}
                   selectedStep={selectedStep}
-                  showSkeleton={false}
+                  showSkeleton={!executionData || (logs && logs.length === 0)}
                 />
               </Card>
               {/* In case not all logs are loaded */}
