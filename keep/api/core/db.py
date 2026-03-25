@@ -1133,10 +1133,17 @@ def push_logs_to_db(log_entries):
     # avoid circular import
     from keep.api.logging import LOG_FORMAT, LOG_FORMAT_OPEN_TELEMETRY
 
+    if not log_entries:
+        return
+
     db_log_entries = []
     if LOG_FORMAT == LOG_FORMAT_OPEN_TELEMETRY:
         for log_entry in log_entries:
             try:
+                # Verify workflow_execution_id exists
+                if "workflow_execution_id" not in log_entry:
+                    continue
+
                 try:
                     # after formatting
                     message = log_entry["message"][0:255]
@@ -1160,12 +1167,18 @@ def push_logs_to_db(log_entries):
                     ),  # workaround to serialize any object
                 )
                 db_log_entries.append(log_entry)
-            except Exception:
-                print("Failed to parse log entry - ", log_entry)
+            except Exception as e:
+                # Log parsing errors to stderr so they're visible
+                import sys
+                print(f"ERROR: Failed to parse workflow log entry: {type(e).__name__}: {str(e)}", file=sys.stderr)
 
     else:
         for log_entry in log_entries:
             try:
+                # Verify workflow_execution_id exists
+                if "workflow_execution_id" not in log_entry:
+                    continue
+
                 try:
                     # after formatting
                     message = log_entry["message"][0:255]
@@ -1181,13 +1194,20 @@ def push_logs_to_db(log_entries):
                     ),  # workaround to serialize any object
                 )
                 db_log_entries.append(log_entry)
-            except Exception:
-                print("Failed to parse log entry - ", log_entry)
+            except Exception as e:
+                # Log parsing errors to stderr so they're visible
+                import sys
+                print(f"ERROR: Failed to parse workflow log entry: {type(e).__name__}: {str(e)}", file=sys.stderr)
 
     # Add the LogEntry instances to the database session
-    with Session(engine) as session:
-        session.add_all(db_log_entries)
-        session.commit()
+    if db_log_entries:
+        try:
+            with Session(engine) as session:
+                session.add_all(db_log_entries)
+                session.commit()
+        except Exception as e:
+            import sys
+            print(f"ERROR: Failed to commit workflow logs to database: {type(e).__name__}: {str(e)}", file=sys.stderr)
 
 
 def get_workflow_execution(
@@ -1224,7 +1244,7 @@ def get_workflow_execution_with_logs(
         logs = session.exec(
             select(WorkflowExecutionLog)
             .where(WorkflowExecutionLog.workflow_execution_id == workflow_execution_id)
-            .order_by(WorkflowExecutionLog.timestamp.asc())
+            .order_by(WorkflowExecutionLog.timestamp.asc(), WorkflowExecutionLog.id.asc())
         ).all()
         return execution, logs
 
@@ -2200,8 +2220,9 @@ def save_workflow_results(tenant_id, workflow_execution_id, workflow_results):
             workflow_execution.results = workflow_results
         except Exception:
             # if that's not ok, use the Keep way (e.g. AlertDto is not json serializable)
-            logger.warning(
-                "Failed to serialize workflow results natively, using custom_serialize",
+            # This is a normal operation, not an error - use debug level
+            logger.debug(
+                "Using custom serialization for workflow results (contains non-JSON-serializable objects)",
             )
             # use some other way to serialize the workflow results
             try:

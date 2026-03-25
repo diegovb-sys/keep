@@ -713,6 +713,19 @@ class WorkflowManager:
             self._run_workflow_on_failure(workflow, workflow_execution_id, str(e))
             raise
 
+        # Flush workflow execution logs to database BEFORE final status log
+        # This ensures proper ordering of logs
+        try:
+            for handler in logging.getLogger().handlers:
+                if hasattr(handler, 'flush') and handler.__class__.__name__ == 'WorkflowDBHandler':
+                    handler.flush()
+                    break
+        except Exception as e:
+            self.logger.warning(
+                f"Failed to flush workflow logs: {e}",
+                extra={"workflow_execution_id": workflow_execution_id},
+            )
+
         if errors is not None and any(errors):
             self.logger.info(msg=f"Workflow {workflow.workflow_id} ran with errors")
         else:
@@ -751,7 +764,7 @@ class WorkflowManager:
             workflow (Workflow): The workflow to save.
             workflow_execution_id (str): The workflow execution ID.
         """
-        self.logger.info(f"Saving workflow {workflow.workflow_id} results")
+        self.logger.debug(f"Saving workflow {workflow.workflow_id} results")
         workflow_results = {
             action.name: action.provider.results for action in workflow.workflow_actions
         }
@@ -771,7 +784,7 @@ class WorkflowManager:
                 extra={"exception": e},
             )
             raise
-        self.logger.info(f"Workflow {workflow.workflow_id} results saved")
+        self.logger.debug(f"Workflow {workflow.workflow_id} results saved")
 
     def _run_workflows_from_cli(self, workflows: typing.List[Workflow]):
         workflows_errors = []

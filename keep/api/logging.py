@@ -78,18 +78,23 @@ class WorkflowContextFilter(logging.Filter):
         if not hasattr(record, "extra"):
             record.extra = {}
 
-        # Get thread context attributes
-        thread_attrs = {
-            "workflow_id": workflow_id,
-            "workflow_execution_id": getattr(thread, "workflow_execution_id", None),
-            "tenant_id": getattr(thread, "tenant_id", None),
-            "provider_type": getattr(thread, "provider_type", None),
-        }
+        # CRITICAL: Always set workflow_id
+        setattr(record, "workflow_id", workflow_id)
 
-        # Set record attributes from thread context
-        for attr, value in thread_attrs.items():
-            if value is not None:
-                setattr(record, attr, value)
+        # Get workflow_execution_id - this must always be set for workflow logs
+        workflow_execution_id = getattr(thread, "workflow_execution_id", None)
+        if workflow_execution_id:
+            setattr(record, "workflow_execution_id", workflow_execution_id)
+
+        # Set tenant_id if available
+        tenant_id = getattr(thread, "tenant_id", None)
+        if tenant_id:
+            setattr(record, "tenant_id", tenant_id)
+
+        # Set provider_type if available
+        provider_type = getattr(thread, "provider_type", None)
+        if provider_type:
+            setattr(record, "provider_type", provider_type)
 
         # Handle step_id
         step_id = getattr(thread, "step_id", None)
@@ -153,9 +158,7 @@ class WorkflowDBHandler(logging.Handler):
             return
 
         try:
-            logging.getLogger(__name__).info("Flushing workflow logs to DB")
             self.push_logs_to_db()
-            logging.getLogger(__name__).info("Flushed workflow logs to DB")
         except Exception as e:
             # Use the parent logger to avoid infinite recursion
             logging.getLogger(__name__).error(
