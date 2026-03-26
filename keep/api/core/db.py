@@ -2199,19 +2199,12 @@ def save_workflow_results(tenant_id, workflow_execution_id, workflow_results):
             # if that's ok, use the original way
             workflow_execution.results = workflow_results
         except Exception:
-            # if that's not ok, use the Keep way (e.g. AlertDto is not json serializable)
+            # if that's not ok, use the Keep way (e.g. alerdto is not json serializable)
             logger.warning(
-                "Failed to serialize workflow results natively, using custom_serialize",
+                "Failed to serialize workflow results, using fastapi encoder",
             )
             # use some other way to serialize the workflow results
-            try:
-                workflow_execution.results = custom_serialize(workflow_results)
-            except Exception as e:
-                logger.error(
-                    "Failed to serialize workflow results with custom_serialize",
-                    extra={"error": str(e)},
-                )
-                workflow_execution.results = {}
+            workflow_execution.results = custom_serialize(workflow_results)
         # commit the changes
         session.commit()
 
