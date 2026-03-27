@@ -68,6 +68,13 @@ class WorkflowContextFilter(logging.Filter):
 
         # Early return if no workflow_id
         if not workflow_id:
+            # Track rejected logs (sample only)
+            if not hasattr(self, '_no_wf_id_count'):
+                self._no_wf_id_count = 0
+            self._no_wf_id_count += 1
+            if self._no_wf_id_count % 20 == 1:  # Log every 20th rejection
+                import sys
+                print(f"[DEBUG] WorkflowContextFilter rejected log (no workflow_id): {record.levelname} - {getattr(record, 'msg', 'no msg')[:100]} from {record.name}", file=sys.stderr)
             return False
 
         # Skip DEBUG logs unless debug mode is enabled
@@ -90,6 +97,14 @@ class WorkflowContextFilter(logging.Filter):
         for attr, value in thread_attrs.items():
             if value is not None:
                 setattr(record, attr, value)
+
+        # Debug: print accepted logs (sample only)
+        if not hasattr(self, '_accepted_count'):
+            self._accepted_count = 0
+        self._accepted_count += 1
+        if self._accepted_count % 10 == 1:  # Log every 10th acceptance
+            import sys
+            print(f"[DEBUG] WorkflowContextFilter accepted log #{self._accepted_count}: {record.levelname} - {getattr(record, 'msg', 'no msg')[:100]} from {record.name}", file=sys.stderr)
 
         # Handle step_id
         step_id = getattr(thread, "step_id", None)
