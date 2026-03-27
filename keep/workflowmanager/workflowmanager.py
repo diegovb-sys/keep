@@ -752,24 +752,13 @@ class WorkflowManager:
         """Flush WorkflowDBHandler to ensure logs are written to DB immediately"""
         try:
             root_logger = logging.getLogger()
-
-            # Now flush WorkflowDBHandler to push to DB
-            # (don't flush all handlers first - that would empty self.records prematurely)
-            handler_found = False
             for handler in root_logger.handlers:
                 if handler.__class__.__name__ == 'WorkflowDBHandler':
-                    handler_found = True
-                    # Get records count before flush
-                    with handler._records_lock:
-                        records_count = len(handler.records)
-                    self.logger.warning(f"[DEBUG] Flushing {records_count} workflow logs from handler to DB")
                     handler.flush()
-                    self.logger.warning("[DEBUG] Successfully flushed workflow logs to DB")
+                    self.logger.debug("Flushed workflow logs to DB")
                     break
-            if not handler_found:
-                self.logger.warning("[DEBUG] WorkflowDBHandler not found in root logger handlers")
         except Exception as e:
-            self.logger.warning(f"[DEBUG] Failed to flush workflow logs: {e}")
+            self.logger.warning(f"Failed to flush workflow logs: {e}")
 
     @staticmethod
     def _get_workflow_results(workflow: Workflow):

@@ -1132,14 +1132,8 @@ def get_workflow_id(tenant_id, workflow_name):
 def push_logs_to_db(log_entries):
     # avoid circular import
     from keep.api.logging import LOG_FORMAT, LOG_FORMAT_OPEN_TELEMETRY
-    import logging
-
-    logger = logging.getLogger(__name__)
-    logger.warning(f"[DEBUG] push_logs_to_db called with {len(log_entries)} log entries")
 
     db_log_entries = []
-    failed_entries = 0
-
     if LOG_FORMAT == LOG_FORMAT_OPEN_TELEMETRY:
         for log_entry in log_entries:
             try:
@@ -1166,9 +1160,8 @@ def push_logs_to_db(log_entries):
                     ),  # workaround to serialize any object
                 )
                 db_log_entries.append(log_entry)
-            except Exception as e:
-                failed_entries += 1
-                logger.warning(f"[DEBUG] Failed to parse log entry: {e}")
+            except Exception:
+                print("Failed to parse log entry - ", log_entry)
 
     else:
         for log_entry in log_entries:
@@ -1188,20 +1181,13 @@ def push_logs_to_db(log_entries):
                     ),  # workaround to serialize any object
                 )
                 db_log_entries.append(log_entry)
-            except Exception as e:
-                failed_entries += 1
-                logger.warning(f"[DEBUG] Failed to parse log entry: {e}")
-
-    logger.warning(f"[DEBUG] Parsed {len(db_log_entries)} log entries successfully, {failed_entries} failed")
+            except Exception:
+                print("Failed to parse log entry - ", log_entry)
 
     # Add the LogEntry instances to the database session
-    try:
-        with Session(engine) as session:
-            session.add_all(db_log_entries)
-            session.commit()
-            logger.warning(f"[DEBUG] Successfully committed {len(db_log_entries)} log entries to DB")
-    except Exception as e:
-        logger.warning(f"[DEBUG] Failed to commit log entries to DB: {e}")
+    with Session(engine) as session:
+        session.add_all(db_log_entries)
+        session.commit()
 
 
 def get_workflow_execution(

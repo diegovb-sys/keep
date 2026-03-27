@@ -73,14 +73,14 @@ class Workflow:
         for step in self.workflow_steps:
             try:
                 threading.current_thread().step_id = step.step_id
-                self.logger.warning(
-                    "[WORKFLOW-LOG] Running step %s",
+                self.logger.info(
+                    "Running step %s",
                     step.step_id,
                     extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
                 )
                 step_ran = step.run()
                 if step_ran:
-                    self.logger.warning(
+                    self.logger.info(
                         "Step %s ran successfully",
                         step.step_id,
                         extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
@@ -88,7 +88,7 @@ class Workflow:
                     threading.current_thread().step_id = None
                 # if the step ran + the step configured to stop the workflow:
                 if step_ran and not step.continue_to_next_step:
-                    self.logger.warning(
+                    self.logger.info(
                         "Step %s ran successfully, stopping because continue_to_next is False",
                         step.step_id,
                         extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
@@ -105,7 +105,7 @@ class Workflow:
 
     def run_action(self, action: Step):
         workflow_execution_id = self.context_manager.workflow_execution_id
-        self.logger.warning(
+        self.logger.info(
             "Running action %s",
             action.name,
             extra={"step_id": action.step_id, "workflow_execution_id": workflow_execution_id},
@@ -115,7 +115,7 @@ class Workflow:
             action_ran = action.run()
             action_error = None
             if action_ran:
-                self.logger.warning(
+                self.logger.info(
                     "Action %s ran successfully",
                     action.name,
                     extra={
@@ -124,7 +124,7 @@ class Workflow:
                     },
                 )
             if action_ran and not action.continue_to_next_step:
-                self.logger.warning(
+                self.logger.info(
                     "Action %s ran successfully, stopping because continue_to_next is False",
                     action.name,
                     extra={
@@ -159,7 +159,7 @@ class Workflow:
                 actions_errors.append(action_error)
             # if the action ran + the action configured to stop the workflow:
             elif action_status and action_stop:
-                self.logger.warning(
+                self.logger.info(
                     "Action stop, stopping the workflow",
                     extra={"workflow_execution_id": workflow_execution_id}
                 )
@@ -169,12 +169,12 @@ class Workflow:
 
     def run(self, workflow_execution_id):
         if self.workflow_disabled:
-            self.logger.warning(
+            self.logger.info(
                 f"Skipping disabled workflow {self.workflow_id}",
                 extra={"workflow_execution_id": workflow_execution_id}
             )
             return
-        self.logger.warning(
+        self.logger.info(
             f"Running workflow {self.workflow_id}",
             extra={
                 "workflow_execution_id": workflow_execution_id,
@@ -196,7 +196,7 @@ class Workflow:
             )
             raise
         actions_firing, actions_errors = self.run_actions()
-        self.logger.warning(
+        self.logger.info(
             f"Finish to run workflow {self.workflow_id}",
             extra={"workflow_execution_id": workflow_execution_id}
         )

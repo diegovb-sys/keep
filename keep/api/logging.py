@@ -68,11 +68,6 @@ class WorkflowContextFilter(logging.Filter):
 
         # Early return if no workflow_id
         if not workflow_id:
-            # Special logging for workflow-related messages that are being rejected
-            msg = str(getattr(record, 'msg', ''))
-            if "Running" in msg or "Step" in msg or "Action" in msg or "workflow" in msg.lower():
-                import sys
-                print(f"[FILTER-REJECT] No workflow_id for: {record.levelname} - {msg[:150]} from {record.name}, thread={thread.name}", file=sys.stderr)
             return False
 
         # Skip DEBUG logs unless debug mode is enabled
@@ -107,14 +102,6 @@ class WorkflowContextFilter(logging.Filter):
         if provider_type:
             setattr(record, "provider_type", provider_type)
 
-        # Debug: print accepted logs (sample only)
-        if not hasattr(self, '_accepted_count'):
-            self._accepted_count = 0
-        self._accepted_count += 1
-        if self._accepted_count % 10 == 1:  # Log every 10th acceptance
-            import sys
-            print(f"[DEBUG] WorkflowContextFilter accepted log #{self._accepted_count}: {record.levelname} - {getattr(record, 'msg', 'no msg')[:100]} from {record.name}", file=sys.stderr)
-
         # Handle step_id
         step_id = getattr(thread, "step_id", None)
         if step_id is not None:
@@ -133,20 +120,16 @@ class WorkflowContextFilter(logging.Filter):
 class WorkflowDBHandler(logging.Handler):
     def __init__(self, flush_interval: int = 2):
         super().__init__()
-        logging.getLogger(__name__).warning("[DEBUG] Initializing WorkflowDBHandler")
+        logging.getLogger(__name__).info("Initializing WorkflowDBHandler")
         self.records = []
         self.flush_interval = flush_interval
         self._stop_event = threading.Event()
         self._records_lock = threading.Lock()  # Protect access to self.records
-        self._emit_count = 0  # Track total emitted logs for debugging
 
         # Don't start timer thread - rely on manual flush from workflow manager
         # Timer thread doesn't survive fork with --preload anyway, and having
         # both timer and manual flush causes race conditions
         self._timer_thread = None
-        logging.getLogger(__name__).warning(
-            f"[DEBUG] WorkflowDBHandler initialized without timer thread (using manual flush only) in PID {os.getpid()}"
-        )
 
     def _timer_run(self):
         while not self._stop_event.is_set():
@@ -168,7 +151,6 @@ class WorkflowDBHandler(logging.Handler):
             # Thread-safe append to records
             with self._records_lock:
                 self.records.append(record)
-                self._emit_count += 1
 
     def push_logs_to_db(self):
         # Convert log records to a list of dictionaries and clean the self.records buffer
@@ -183,28 +165,17 @@ class WorkflowDBHandler(logging.Handler):
         # Thread-safe check if there are records to flush
         with self._records_lock:
             has_records = len(self.records) > 0
-            records_count = len(self.records)
-            total_emitted = self._emit_count
 
         if not has_records:
             return
 
         try:
-            logging.getLogger(__name__).warning(
-                f"[DEBUG] Flushing {records_count} workflow logs to DB (total emitted so far: {total_emitted})"
-            )
             self.push_logs_to_db()
-            logging.getLogger(__name__).warning(
-                f"[DEBUG] Flushed {records_count} workflow logs to DB successfully"
-            )
         except Exception as e:
             # Use the parent logger to avoid infinite recursion
-            logging.getLogger(__name__).warning(
-                f"[DEBUG] Failed to flush workflow logs: {str(e)}"
+            logging.getLogger(__name__).error(
+                f"Failed to flush workflow logs: {str(e)}"
             )
-        finally:
-            # Clear the timer reference
-            self._flush_timer = None
 
 
 class ProviderDBHandler(logging.Handler):
