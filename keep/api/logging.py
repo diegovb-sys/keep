@@ -396,6 +396,11 @@ CONFIG = {
     },
     "loggers": {
         "": {
+            "handlers": ["default"],
+            "level": LOG_LEVEL,
+            "propagate": False,
+        },
+        "keep": {
             "handlers": ["workflowhandler", "default"],
             "level": "DEBUG",
             "propagate": False,
