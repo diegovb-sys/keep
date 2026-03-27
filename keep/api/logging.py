@@ -141,17 +141,12 @@ class WorkflowDBHandler(logging.Handler):
         self._records_lock = threading.Lock()  # Protect access to self.records
         self._emit_count = 0  # Track total emitted logs for debugging
 
-        # Start timer thread immediately (like v0.48.1 - proven to work)
-        # Note: With --preload, this thread will be created in master and die in workers
-        # But the handler structure and flush() method will work correctly
-        self._timer_thread = threading.Thread(target=self._timer_run)
-        self._timer_thread.daemon = True
+        # Don't start timer thread - rely on manual flush from workflow manager
+        # Timer thread doesn't survive fork with --preload anyway, and having
+        # both timer and manual flush causes race conditions
+        self._timer_thread = None
         logging.getLogger(__name__).warning(
-            f"[DEBUG] Starting WorkflowDBHandler timer thread in PID {os.getpid()}"
-        )
-        self._timer_thread.start()
-        logging.getLogger(__name__).warning(
-            f"[DEBUG] Started WorkflowDBHandler timer thread in PID {os.getpid()}"
+            f"[DEBUG] WorkflowDBHandler initialized without timer thread (using manual flush only) in PID {os.getpid()}"
         )
 
     def _timer_run(self):

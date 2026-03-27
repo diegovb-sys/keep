@@ -752,6 +752,16 @@ class WorkflowManager:
         """Flush WorkflowDBHandler to ensure logs are written to DB immediately"""
         try:
             root_logger = logging.getLogger()
+
+            # Force synchronous processing of all pending log records
+            # by flushing all handlers (this ensures logs reach WorkflowDBHandler)
+            for handler in root_logger.handlers:
+                try:
+                    handler.flush()
+                except Exception:
+                    pass  # Ignore errors from other handlers
+
+            # Now flush WorkflowDBHandler to push to DB
             handler_found = False
             for handler in root_logger.handlers:
                 if handler.__class__.__name__ == 'WorkflowDBHandler':
