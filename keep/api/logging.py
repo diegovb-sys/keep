@@ -109,29 +109,25 @@ class WorkflowContextFilter(logging.Filter):
 class WorkflowDBHandler(logging.Handler):
     def __init__(self, flush_interval: int = 2):
         super().__init__()
-        logging.getLogger(__name__).info("Initializing WorkflowDBHandler")
+        logging.getLogger(__name__).warning("[DEBUG] Initializing WorkflowDBHandler")
         self.records = []
         self.flush_interval = flush_interval
         self._stop_event = threading.Event()
-        self._timer_thread = None
-        self._timer_started = False
-        self._timer_lock = threading.Lock()
+        self._records_lock = threading.Lock()  # Protect access to self.records
+        self._emit_count = 0  # Track total emitted logs for debugging
 
-    def _ensure_timer_started(self):
-        """Start timer thread lazily (after fork in worker process)"""
-        if not self._timer_started:
-            with self._timer_lock:
-                if not self._timer_started:
-                    logging.getLogger(__name__).info(
-                        f"Starting WorkflowDBHandler timer thread in PID {os.getpid()}"
-                    )
-                    self._timer_thread = threading.Thread(target=self._timer_run)
-                    self._timer_thread.daemon = True
-                    self._timer_thread.start()
-                    self._timer_started = True
-                    logging.getLogger(__name__).info(
-                        f"Started WorkflowDBHandler timer thread in PID {os.getpid()}"
-                    )
+        # Start timer thread immediately (like v0.48.1 - proven to work)
+        # Note: With --preload, this thread will be created in master and die in workers
+        # But the handler structure and flush() method will work correctly
+        self._timer_thread = threading.Thread(target=self._timer_run)
+        self._timer_thread.daemon = True
+        logging.getLogger(__name__).warning(
+            f"[DEBUG] Starting WorkflowDBHandler timer thread in PID {os.getpid()}"
+        )
+        self._timer_thread.start()
+        logging.getLogger(__name__).warning(
+            f"[DEBUG] Started WorkflowDBHandler timer thread in PID {os.getpid()}"
+        )
 
     def _timer_run(self):
         while not self._stop_event.is_set():
@@ -149,29 +145,43 @@ class WorkflowDBHandler(logging.Handler):
         if not KEEP_STORE_WORKFLOW_LOGS:
             return
         if hasattr(record, "workflow_execution_id") and record.workflow_execution_id:
-            # Ensure timer thread is started in this worker (lazy init after fork)
-            self._ensure_timer_started()
             self.format(record)
-            self.records.append(record)
+            # Thread-safe append to records
+            with self._records_lock:
+                self.records.append(record)
+                self._emit_count += 1
 
     def push_logs_to_db(self):
         # Convert log records to a list of dictionaries and clean the self.records buffer
-        log_entries, self.records = [record.__dict__ for record in self.records], []
-        # Push log entries to the database
+        # Thread-safe: copy and clear records atomically
+        with self._records_lock:
+            log_entries = [record.__dict__ for record in self.records]
+            self.records = []
+        # Push log entries to the database (outside lock to avoid blocking)
         push_logs_to_db(log_entries)
 
     def flush(self):
-        if not self.records:
+        # Thread-safe check if there are records to flush
+        with self._records_lock:
+            has_records = len(self.records) > 0
+            records_count = len(self.records)
+            total_emitted = self._emit_count
+
+        if not has_records:
             return
 
         try:
-            logging.getLogger(__name__).info("Flushing workflow logs to DB")
+            logging.getLogger(__name__).warning(
+                f"[DEBUG] Flushing {records_count} workflow logs to DB (total emitted so far: {total_emitted})"
+            )
             self.push_logs_to_db()
-            logging.getLogger(__name__).info("Flushed workflow logs to DB")
+            logging.getLogger(__name__).warning(
+                f"[DEBUG] Flushed {records_count} workflow logs to DB successfully"
+            )
         except Exception as e:
             # Use the parent logger to avoid infinite recursion
-            logging.getLogger(__name__).error(
-                f"Failed to flush workflow logs: {str(e)}"
+            logging.getLogger(__name__).warning(
+                f"[DEBUG] Failed to flush workflow logs: {str(e)}"
             )
         finally:
             # Clear the timer reference
