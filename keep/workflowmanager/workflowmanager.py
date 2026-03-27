@@ -693,45 +693,60 @@ class WorkflowManager:
     @timing_histogram(workflow_execution_duration)
     def _run_workflow(self, workflow: Workflow, workflow_execution_id: str):
         self.logger.debug(f"Running workflow {workflow.workflow_id}")
-        threading.current_thread().workflow_debug = workflow.workflow_debug
-        threading.current_thread().workflow_id = workflow.workflow_id
-        threading.current_thread().workflow_execution_id = workflow_execution_id
-        threading.current_thread().tenant_id = workflow.context_manager.tenant_id
+        thread = threading.current_thread()
+        thread.workflow_debug = workflow.workflow_debug
+        thread.workflow_id = workflow.workflow_id
+        thread.workflow_execution_id = workflow_execution_id
+        thread.tenant_id = workflow.context_manager.tenant_id
         errors = []
         try:
-            self._check_premium_providers(workflow)
-            errors = workflow.run(workflow_execution_id)
-            if errors:
-                self._run_workflow_on_failure(
-                    workflow, workflow_execution_id, ", ".join(errors)
+            try:
+                self._check_premium_providers(workflow)
+                errors = workflow.run(workflow_execution_id)
+                if errors:
+                    self._run_workflow_on_failure(
+                        workflow, workflow_execution_id, ", ".join(errors)
+                    )
+            except Exception as e:
+                self.logger.error(
+                    f"Error running workflow {workflow.workflow_id}",
+                    extra={"exception": e, "workflow_execution_id": workflow_execution_id},
                 )
-        except Exception as e:
-            self.logger.error(
-                f"Error running workflow {workflow.workflow_id}",
-                extra={"exception": e, "workflow_execution_id": workflow_execution_id},
-            )
-            self._run_workflow_on_failure(workflow, workflow_execution_id, str(e))
-            # Flush logs before re-raising to ensure error logs are saved
+                self._run_workflow_on_failure(workflow, workflow_execution_id, str(e))
+                # Flush logs before re-raising to ensure error logs are saved
+                self._flush_workflow_logs()
+                raise
+
+            if errors is not None and any(errors):
+                self.logger.info(
+                    msg=f"Workflow {workflow.workflow_id} ran with errors",
+                    extra={"workflow_execution_id": workflow_execution_id}
+                )
+            else:
+                self.logger.info(
+                    f"Workflow {workflow.workflow_id} ran successfully",
+                    extra={"workflow_execution_id": workflow_execution_id}
+                )
+
+            self._save_workflow_results(workflow, workflow_execution_id)
+
+            # Flush workflow logs to DB immediately after workflow execution
             self._flush_workflow_logs()
-            raise
 
-        if errors is not None and any(errors):
-            self.logger.info(
-                msg=f"Workflow {workflow.workflow_id} ran with errors",
-                extra={"workflow_execution_id": workflow_execution_id}
-            )
-        else:
-            self.logger.info(
-                f"Workflow {workflow.workflow_id} ran successfully",
-                extra={"workflow_execution_id": workflow_execution_id}
-            )
-
-        self._save_workflow_results(workflow, workflow_execution_id)
-
-        # Flush workflow logs to DB immediately after workflow execution
-        self._flush_workflow_logs()
-
-        return [errors, None]
+            return [errors, None]
+        finally:
+            # Clean up thread context to avoid contaminating next workflow execution
+            # (threads are reused in ThreadPoolExecutor)
+            if hasattr(thread, 'workflow_id'):
+                delattr(thread, 'workflow_id')
+            if hasattr(thread, 'workflow_execution_id'):
+                delattr(thread, 'workflow_execution_id')
+            if hasattr(thread, 'workflow_debug'):
+                delattr(thread, 'workflow_debug')
+            if hasattr(thread, 'tenant_id'):
+                delattr(thread, 'tenant_id')
+            if hasattr(thread, 'step_id'):
+                delattr(thread, 'step_id')
 
     def _flush_workflow_logs(self):
         """Flush WorkflowDBHandler to ensure logs are written to DB immediately"""
