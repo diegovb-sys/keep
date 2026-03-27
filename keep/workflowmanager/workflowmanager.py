@@ -716,9 +716,15 @@ class WorkflowManager:
             raise
 
         if errors is not None and any(errors):
-            self.logger.info(msg=f"Workflow {workflow.workflow_id} ran with errors")
+            self.logger.info(
+                msg=f"Workflow {workflow.workflow_id} ran with errors",
+                extra={"workflow_execution_id": workflow_execution_id}
+            )
         else:
-            self.logger.info(f"Workflow {workflow.workflow_id} ran successfully")
+            self.logger.info(
+                f"Workflow {workflow.workflow_id} ran successfully",
+                extra={"workflow_execution_id": workflow_execution_id}
+            )
 
         self._save_workflow_results(workflow, workflow_execution_id)
 
@@ -776,7 +782,10 @@ class WorkflowManager:
             workflow (Workflow): The workflow to save.
             workflow_execution_id (str): The workflow execution ID.
         """
-        self.logger.info(f"Saving workflow {workflow.workflow_id} results")
+        self.logger.info(
+            f"Saving workflow {workflow.workflow_id} results",
+            extra={"workflow_execution_id": workflow_execution_id}
+        )
         workflow_results = {
             action.name: action.provider.results for action in workflow.workflow_actions
         }
@@ -793,10 +802,13 @@ class WorkflowManager:
         except Exception as e:
             self.logger.error(
                 f"Error saving workflow {workflow.workflow_id} results",
-                extra={"exception": e},
+                extra={"exception": e, "workflow_execution_id": workflow_execution_id},
             )
             raise
-        self.logger.info(f"Workflow {workflow.workflow_id} results saved")
+        self.logger.info(
+            f"Workflow {workflow.workflow_id} results saved",
+            extra={"workflow_execution_id": workflow_execution_id}
+        )
 
     def _run_workflows_from_cli(self, workflows: typing.List[Workflow]):
         workflows_errors = []

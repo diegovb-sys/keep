@@ -68,6 +68,7 @@ class Workflow:
         self.workflow_permissions = workflow_permissions
 
     def run_steps(self):
+        workflow_execution_id = self.context_manager.workflow_execution_id
         self.logger.debug(f"Running steps for workflow {self.workflow_id}")
         for step in self.workflow_steps:
             try:
@@ -75,14 +76,14 @@ class Workflow:
                 self.logger.info(
                     "Running step %s",
                     step.step_id,
-                    extra={"step_id": step.step_id},
+                    extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
                 )
                 step_ran = step.run()
                 if step_ran:
                     self.logger.info(
                         "Step %s ran successfully",
                         step.step_id,
-                        extra={"step_id": step.step_id},
+                        extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
                     )
                     threading.current_thread().step_id = None
                 # if the step ran + the step configured to stop the workflow:
@@ -90,20 +91,24 @@ class Workflow:
                     self.logger.info(
                         "Step %s ran successfully, stopping because continue_to_next is False",
                         step.step_id,
-                        extra={"step_id": step.step_id},
+                        extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
                     )
                     break
             except StepError as e:
-                self.logger.error(f"Step {step.step_id} failed: {e}")
+                self.logger.error(
+                    f"Step {step.step_id} failed: {e}",
+                    extra={"workflow_execution_id": workflow_execution_id}
+                )
                 threading.current_thread().step_id = None
                 raise
         self.logger.debug(f"Steps for workflow {self.workflow_id} ran successfully")
 
     def run_action(self, action: Step):
+        workflow_execution_id = self.context_manager.workflow_execution_id
         self.logger.info(
             "Running action %s",
             action.name,
-            extra={"step_id": action.step_id},
+            extra={"step_id": action.step_id, "workflow_execution_id": workflow_execution_id},
         )
         try:
             action_stop = False
@@ -115,6 +120,7 @@ class Workflow:
                     action.name,
                     extra={
                         "step_id": action.step_id,
+                        "workflow_execution_id": workflow_execution_id,
                     },
                 )
             if action_ran and not action.continue_to_next_step:
@@ -123,6 +129,7 @@ class Workflow:
                     action.name,
                     extra={
                         "step_id": action.step_id,
+                        "workflow_execution_id": workflow_execution_id,
                     },
                 )
                 action_stop = True
@@ -131,6 +138,7 @@ class Workflow:
                 f"Action {action.name} failed: {e}",
                 extra={
                     "step_id": action.step_id,
+                    "workflow_execution_id": workflow_execution_id,
                 },
             )
             action_ran = False
@@ -138,6 +146,7 @@ class Workflow:
         return action_ran, action_error, action_stop
 
     def run_actions(self):
+        workflow_execution_id = self.context_manager.workflow_execution_id
         self.logger.debug("Running actions")
         actions_firing = []
         actions_errors = []
@@ -150,18 +159,25 @@ class Workflow:
                 actions_errors.append(action_error)
             # if the action ran + the action configured to stop the workflow:
             elif action_status and action_stop:
-                self.logger.info("Action stop, stopping the workflow")
+                self.logger.info(
+                    "Action stop, stopping the workflow",
+                    extra={"workflow_execution_id": workflow_execution_id}
+                )
                 break
         self.logger.debug("Actions ran")
         return actions_firing, actions_errors
 
     def run(self, workflow_execution_id):
         if self.workflow_disabled:
-            self.logger.info(f"Skipping disabled workflow {self.workflow_id}")
+            self.logger.info(
+                f"Skipping disabled workflow {self.workflow_id}",
+                extra={"workflow_execution_id": workflow_execution_id}
+            )
             return
         self.logger.info(
             f"Running workflow {self.workflow_id}",
             extra={
+                "workflow_execution_id": workflow_execution_id,
                 "event": self.context_manager.event_context
                 or self.context_manager.incident_context
             },
@@ -180,7 +196,10 @@ class Workflow:
             )
             raise
         actions_firing, actions_errors = self.run_actions()
-        self.logger.info(f"Finish to run workflow {self.workflow_id}")
+        self.logger.info(
+            f"Finish to run workflow {self.workflow_id}",
+            extra={"workflow_execution_id": workflow_execution_id}
+        )
         return actions_errors
 
     @staticmethod
