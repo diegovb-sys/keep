@@ -86,17 +86,16 @@ class WorkflowContextFilter(logging.Filter):
         # Always set workflow_id from thread
         setattr(record, "workflow_id", workflow_id)
 
-        # Set workflow_execution_id from thread context
+        # Set workflow_execution_id: prefer thread context, fallback to extra dict
         thread_exec_id = getattr(thread, "workflow_execution_id", None)
         if thread_exec_id:
-            setattr(record, "workflow_execution_id", thread_exec_id)
-        # If not in thread context, try to get from record.__dict__ (from extra parameter)
-        elif "workflow_execution_id" in record.__dict__:
-            # Already set by logger extra parameter, keep it
+            record.workflow_execution_id = thread_exec_id
+        elif hasattr(record, "workflow_execution_id") and record.workflow_execution_id:
+            # Already set from extra dict by LogRecord.__init__, keep it
             pass
         else:
-            # Last resort: set to None so emit() will filter it out
-            record.workflow_execution_id = None
+            # Not in thread or extra - this log won't be stored
+            pass
 
         # Set tenant_id from thread if available
         tenant_id = getattr(thread, "tenant_id", None)
