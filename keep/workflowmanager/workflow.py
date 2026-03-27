@@ -73,8 +73,8 @@ class Workflow:
         for step in self.workflow_steps:
             try:
                 threading.current_thread().step_id = step.step_id
-                self.logger.info(
-                    "Running step %s",
+                self.logger.warning(
+                    "[WORKFLOW-LOG] Running step %s",
                     step.step_id,
                     extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
                 )

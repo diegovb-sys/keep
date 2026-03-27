@@ -68,13 +68,11 @@ class WorkflowContextFilter(logging.Filter):
 
         # Early return if no workflow_id
         if not workflow_id:
-            # Track rejected logs (sample only)
-            if not hasattr(self, '_no_wf_id_count'):
-                self._no_wf_id_count = 0
-            self._no_wf_id_count += 1
-            if self._no_wf_id_count % 20 == 1:  # Log every 20th rejection
+            # Special logging for workflow-related messages that are being rejected
+            msg = str(getattr(record, 'msg', ''))
+            if "Running" in msg or "Step" in msg or "Action" in msg or "workflow" in msg.lower():
                 import sys
-                print(f"[DEBUG] WorkflowContextFilter rejected log (no workflow_id): {record.levelname} - {getattr(record, 'msg', 'no msg')[:100]} from {record.name}", file=sys.stderr)
+                print(f"[FILTER-REJECT] No workflow_id for: {record.levelname} - {msg[:150]} from {record.name}, thread={thread.name}", file=sys.stderr)
             return False
 
         # Skip DEBUG logs unless debug mode is enabled
@@ -85,18 +83,30 @@ class WorkflowContextFilter(logging.Filter):
         if not hasattr(record, "extra"):
             record.extra = {}
 
-        # Get thread context attributes
-        thread_attrs = {
-            "workflow_id": workflow_id,
-            "workflow_execution_id": getattr(thread, "workflow_execution_id", None),
-            "tenant_id": getattr(thread, "tenant_id", None),
-            "provider_type": getattr(thread, "provider_type", None),
-        }
+        # Always set workflow_id from thread
+        setattr(record, "workflow_id", workflow_id)
 
-        # Set record attributes from thread context
-        for attr, value in thread_attrs.items():
-            if value is not None:
-                setattr(record, attr, value)
+        # Set workflow_execution_id from thread context
+        thread_exec_id = getattr(thread, "workflow_execution_id", None)
+        if thread_exec_id:
+            setattr(record, "workflow_execution_id", thread_exec_id)
+        # If not in thread context, try to get from record.__dict__ (from extra parameter)
+        elif "workflow_execution_id" in record.__dict__:
+            # Already set by logger extra parameter, keep it
+            pass
+        else:
+            # Last resort: set to None so emit() will filter it out
+            record.workflow_execution_id = None
+
+        # Set tenant_id from thread if available
+        tenant_id = getattr(thread, "tenant_id", None)
+        if tenant_id:
+            setattr(record, "tenant_id", tenant_id)
+
+        # Set provider_type from thread if available
+        provider_type = getattr(thread, "provider_type", None)
+        if provider_type:
+            setattr(record, "provider_type", provider_type)
 
         # Debug: print accepted logs (sample only)
         if not hasattr(self, '_accepted_count'):
