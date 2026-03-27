@@ -113,25 +113,35 @@ class WorkflowDBHandler(logging.Handler):
         self.records = []
         self.flush_interval = flush_interval
         self._stop_event = threading.Event()
-        # Start repeating timer in a separate thread
-        self._timer_thread = threading.Thread(target=self._timer_run)
-        self._timer_thread.daemon = (
-            True  # Make it a daemon so it stops when program exits
-        )
-        logging.getLogger(__name__).info("Starting WorkflowDBHandler timer thread")
-        self._timer_thread.start()
-        logging.getLogger(__name__).info("Started WorkflowDBHandler timer thread")
+        self._timer_thread = None
+        self._timer_started = False
+        self._timer_lock = threading.Lock()
+
+    def _ensure_timer_started(self):
+        """Start timer thread lazily (after fork in worker process)"""
+        if not self._timer_started:
+            with self._timer_lock:
+                if not self._timer_started:
+                    logging.getLogger(__name__).info(
+                        f"Starting WorkflowDBHandler timer thread in PID {os.getpid()}"
+                    )
+                    self._timer_thread = threading.Thread(target=self._timer_run)
+                    self._timer_thread.daemon = True
+                    self._timer_thread.start()
+                    self._timer_started = True
+                    logging.getLogger(__name__).info(
+                        f"Started WorkflowDBHandler timer thread in PID {os.getpid()}"
+                    )
 
     def _timer_run(self):
         while not self._stop_event.is_set():
-            # logging.getLogger(__name__).info("Timer running")
             self.flush()
-            # logging.getLogger(__name__).info("Timer sleeping")
-            self._stop_event.wait(self.flush_interval)  # Wait but can be interrupted
+            self._stop_event.wait(self.flush_interval)
 
     def close(self):
-        self._stop_event.set()  # Signal the timer to stop
-        self._timer_thread.join()  # Wait for timer thread to finish
+        self._stop_event.set()
+        if self._timer_thread:
+            self._timer_thread.join()
         super().close()
 
     def emit(self, record):
@@ -139,6 +149,8 @@ class WorkflowDBHandler(logging.Handler):
         if not KEEP_STORE_WORKFLOW_LOGS:
             return
         if hasattr(record, "workflow_execution_id") and record.workflow_execution_id:
+            # Ensure timer thread is started in this worker (lazy init after fork)
+            self._ensure_timer_started()
             self.format(record)
             self.records.append(record)
 

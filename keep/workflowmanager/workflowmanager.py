@@ -720,7 +720,22 @@ class WorkflowManager:
 
         self._save_workflow_results(workflow, workflow_execution_id)
 
+        # Flush workflow logs to DB immediately after workflow execution
+        self._flush_workflow_logs()
+
         return [errors, None]
+
+    def _flush_workflow_logs(self):
+        """Flush WorkflowDBHandler to ensure logs are written to DB immediately"""
+        try:
+            root_logger = logging.getLogger()
+            for handler in root_logger.handlers:
+                if handler.__class__.__name__ == 'WorkflowDBHandler':
+                    handler.flush()
+                    self.logger.debug("Flushed workflow logs to DB")
+                    break
+        except Exception as e:
+            self.logger.warning(f"Failed to flush workflow logs: {e}")
 
     @staticmethod
     def _get_workflow_results(workflow: Workflow):
