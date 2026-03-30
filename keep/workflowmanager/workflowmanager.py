@@ -789,6 +789,9 @@ class WorkflowManager:
             workflow (Workflow): The workflow to save.
             workflow_execution_id (str): The workflow execution ID.
         """
+        from keep.api.core.db_utils import custom_serialize
+        import json
+
         self.logger.info(
             f"Saving workflow {workflow.workflow_id} results",
             extra={"workflow_execution_id": workflow_execution_id}
@@ -800,6 +803,20 @@ class WorkflowManager:
             workflow_results.update(
                 {step.name: step.provider.results for step in workflow.workflow_steps}
             )
+
+        # Pre-serialize the results to ensure they are JSON-serializable
+        # This avoids the warning "Failed to serialize workflow results" in save_workflow_results
+        try:
+            # Test if results are directly JSON serializable
+            json.dumps(workflow_results)
+        except (TypeError, ValueError):
+            # If not, use custom serializer to convert complex objects
+            self.logger.debug(
+                "Workflow results contain non-JSON-serializable objects, converting",
+                extra={"workflow_execution_id": workflow_execution_id}
+            )
+            workflow_results = custom_serialize(workflow_results)
+
         try:
             save_workflow_results(
                 tenant_id=workflow.context_manager.tenant_id,

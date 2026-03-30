@@ -129,13 +129,26 @@ class Step:
         # the item holds the value we are going to iterate over
         items = self._get_foreach_items()
         any_action_run = False
+        # Track foreach execution stats
+        items_count = len(items) if isinstance(items, (list, tuple)) else 0
+        executed_count = 0
+        failed_count = 0
+
+        self.logger.info(
+            f"Starting foreach for {self.step_id} with {items_count} items",
+            extra={"step_id": self.step_id, "items_count": items_count},
+        )
+
         # apply ALL conditions (the decision whether to run or not is made in the end)
         self.context_manager.set_foreach_items(items=items)
         for item in items:
             self.context_manager.set_foreach_value(value=item)
             try:
                 did_action_run = self._run_single()
+                if did_action_run:
+                    executed_count += 1
             except Exception as e:
+                failed_count += 1
                 self.logger.warning(
                     "Failed to run step %s with error %s",
                     self.step_id,
@@ -150,8 +163,21 @@ class Step:
             # TODO - do it per item
             if did_action_run:
                 any_action_run = True
+
         # reset the foreach context
         self.context_manager.reset_foreach_context()
+
+        # Log summary of foreach execution
+        self.logger.info(
+            f"Completed foreach for {self.step_id}: {executed_count}/{items_count} executed, {failed_count} failed",
+            extra={
+                "step_id": self.step_id,
+                "items_total": items_count,
+                "items_executed": executed_count,
+                "items_failed": failed_count,
+            },
+        )
+
         return any_action_run
 
     def _run_single(self, dont_render=False):
