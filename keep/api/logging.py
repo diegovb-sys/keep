@@ -400,6 +400,10 @@ CONFIG = {
             "level": "DEBUG",
             "propagate": False,
         },
+        "keep.workflowmanager": {
+            "level": "DEBUG",
+            "propagate": True,
+        },
         "slowapi": {
             "handlers": ["default"],
             "level": LOG_LEVEL,
