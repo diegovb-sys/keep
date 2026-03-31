@@ -48,6 +48,12 @@ class GithubProvider(BaseProvider):
             description="Get the N last releases and their changelog from a GitHub repository",
             type="view",
         ),
+        ProviderMethod(
+            name="create_issue",
+            func_name="create_issue",
+            description="Create a new issue in a GitHub repository",
+            type="action",
+        ),
     ]
 
     def __init__(
@@ -87,6 +93,54 @@ class GithubProvider(BaseProvider):
         releases = repo.get_releases()
         self.logger.info(f"Found {releases.totalCount} releases")
         return [release.raw_data for release in releases[:n]]
+
+    def create_issue(
+        self,
+        repository: str,
+        title: str,
+        body: str = "",
+        labels: list = None,
+        assignees: list = None,
+    ):
+        """
+        Create a new issue in a GitHub repository.
+        Args:
+            repository (str): The GitHub repository to create the issue in.
+            title (str): The title of the issue.
+            body (str): The body/description of the issue.
+            labels (list): List of label names to apply to the issue.
+            assignees (list): List of usernames to assign to the issue.
+        Returns:
+            dict: The created issue data.
+        """
+        self.logger.info(f"Creating issue in {repository}: {title}")
+
+        # Normalize repository name
+        if repository.startswith("https://github.com"):
+            repository = repository.split("https://github.com/")[1]
+
+        repo = self.client.get_repo(repository)
+
+        # Create the issue
+        issue = repo.create_issue(
+            title=title,
+            body=body,
+            labels=labels or [],
+            assignees=assignees or [],
+        )
+
+        self.logger.info(f"Issue created successfully: {issue.html_url}")
+
+        return {
+            "number": issue.number,
+            "title": issue.title,
+            "body": issue.body,
+            "state": issue.state,
+            "html_url": issue.html_url,
+            "created_at": str(issue.created_at),
+            "labels": [label.name for label in issue.labels],
+            "assignees": [assignee.login for assignee in issue.assignees],
+        }
 
     def __generate_client(self):
         # Should get an access token once we have a real use case for GitHub provider
