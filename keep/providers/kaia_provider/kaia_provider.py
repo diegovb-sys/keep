@@ -76,7 +76,6 @@ class KaiaProvider(BaseProvider):
 
     PROVIDER_DISPLAY_NAME = "Kaia"
     PROVIDER_CATEGORY = ["AI"]
-    PROVIDER_TAGS = ["AI", "ITX"]
 
     def __init__(
         self, context_manager: ContextManager, provider_id: str, config: ProviderConfig
