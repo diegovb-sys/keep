@@ -193,12 +193,24 @@ class BaseProvider(metaclass=abc.ABCMeta):
         audit_enabled = bool(kwargs.pop("audit_enabled", True))
         # trigger the provider
         results = self._notify(**kwargs)
-        self.results.append(results)
+
         # if the alert should be enriched, enrich it
         enrich_event = enrich_alert or enrich_incident
         if enrich_event:
             self._enrich(enrich_event, results, audit_enabled=audit_enabled)
 
+            # If results is empty (e.g., mock provider with only enrichments),
+            # add enrichment info to results for better logging visibility
+            if not results or results == {}:
+                enrichment_values = {}
+                for enrichment in enrich_event:
+                    key = enrichment.get("key")
+                    value = enrichment.get("value")
+                    if key and value:
+                        enrichment_values[key] = value
+                results = {"enrichments_applied": enrichment_values}
+
+        self.results.append(results)
         return results if results else None
 
     def _enrich(self, enrichments, results, audit_enabled=True):
@@ -391,7 +403,7 @@ class BaseProvider(metaclass=abc.ABCMeta):
         audit_enabled = bool(kwargs.pop("audit_enabled", True))
         # just run the query
         results = self._query(**kwargs)
-        self.results.append(results)
+
         # now add the type of the results to the global context
         if results and isinstance(results, list):
             self.context_manager.dependencies.add(results[0].__class__)
@@ -400,6 +412,19 @@ class BaseProvider(metaclass=abc.ABCMeta):
 
         if enrich_alert:
             self._enrich(enrich_alert, results, audit_enabled=audit_enabled)
+
+            # If results is empty (e.g., provider with only enrichments),
+            # add enrichment info to results for better logging visibility
+            if not results or results == {}:
+                enrichment_values = {}
+                for enrichment in enrich_alert:
+                    key = enrichment.get("key")
+                    value = enrichment.get("value")
+                    if key and value:
+                        enrichment_values[key] = value
+                results = {"enrichments_applied": enrichment_values}
+
+        self.results.append(results)
         # and return the results
         return results
 
