@@ -161,17 +161,67 @@ class GithubProvider(BaseProvider):
             **self.config.authentication
         )
 
+    def _query(self, command_type: str, **kwargs: dict):
+        """
+        Query GitHub for information using different command types.
+
+        Args:
+            command_type (str): The type of query to execute (get_last_commits, get_last_releases)
+            **kwargs: Additional parameters for the specific command
+
+        Returns:
+            Query results based on command_type
+        """
+        if command_type == "get_last_commits":
+            return self.get_last_commits(
+                repository=kwargs.get("repository"),
+                n=kwargs.get("n", 10)
+            )
+
+        elif command_type == "get_last_releases":
+            return self.get_last_releases(
+                repository=kwargs.get("repository"),
+                n=kwargs.get("n", 10)
+            )
+
+        else:
+            raise NotImplementedError(
+                f"Query command_type '{command_type}' is not implemented. "
+                f"Available: get_last_commits, get_last_releases"
+            )
+
     def _notify(self, **kwargs):
         """
-        Notify the provider.
+        Execute actions on GitHub.
+
         Args:
-            run_action (str): The action to run.
-            workflow (str): The workflow to run.
-            repo_name (str): The repository name.
-            repo_owner (str): The repository owner.
-            ref (str): The ref to use.
-            inputs (dict): The inputs to use.
+            type (str): The type of action to execute (create_issue)
+            repository (str): The repository for create_issue action
+            title (str): The title for create_issue action
+            body (str): The body for create_issue action
+            labels (list): Labels for create_issue action
+            assignees (list): Assignees for create_issue action
+            run_action (str): The action to run (legacy GitHub Actions workflow trigger)
+            workflow (str): The workflow to run
+            repo_name (str): The repository name
+            repo_owner (str): The repository owner
+            ref (str): The ref to use
+            inputs (dict): The inputs to use
+
+        Returns:
+            Action results based on type or run_action
         """
+        # Handle create_issue action
+        if kwargs.get("type") == "create_issue":
+            return self.create_issue(
+                repository=kwargs.get("repository"),
+                title=kwargs.get("title"),
+                body=kwargs.get("body", ""),
+                labels=kwargs.get("labels"),
+                assignees=kwargs.get("assignees"),
+            )
+
+        # Legacy: run GitHub Actions workflow
         if "run_action" in kwargs:
             workflow_name = kwargs.get("workflow")
             repo_name = kwargs.get("repo_name")
