@@ -361,6 +361,21 @@ class KaiaProvider(BaseProvider):
             "usage": result.get("usage", {}),
         }
 
+    def _notify(self, **kwargs):
+        """
+        Notify method that wraps _query for workflow compatibility.
+
+        This allows the Kaia provider to be used in workflow steps,
+        where Keep expects a notify() method.
+
+        Args:
+            **kwargs: All parameters are passed to _query()
+
+        Returns:
+            dict: Result from _query()
+        """
+        return self._query(**kwargs)
+
 
 if __name__ == "__main__":
     import os
