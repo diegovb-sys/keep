@@ -110,6 +110,10 @@ class ContextManager:
     def set_execution_context(self, workflow_id, workflow_execution_id):
         self.workflow_execution_id = workflow_execution_id
         self.workflow_id = workflow_id
+        # Clear steps_context from previous execution to prevent contamination
+        # when workflow cache reuses context manager instances
+        self.steps_context = {}
+        self.steps_context_size = 0
         for logger in self.__loggers.values():
             logger.workflow_execution_id = workflow_execution_id
 
