@@ -127,10 +127,38 @@ class BaseProvider(metaclass=abc.ABCMeta):
             "Base provider initialized", extra={"provider": self.__class__.__name__}
         )
         self.provider_type = self._extract_type()
-        self.results = []
+        # Thread-local storage for results to prevent contamination when workflow cache
+        # reuses provider instances across concurrent executions
+        import threading
+        self._results_storage = threading.local()
         # tb: we can have this overriden by customer configuration, when initializing the provider
         self.fingerprint_fields = self.FINGERPRINT_FIELDS
         self.step_id = None
+
+    @property
+    def results(self):
+        """Thread-local results list. Each thread gets its own isolated list."""
+        # Check if this is a new workflow execution
+        current_execution_id = getattr(self.context_manager, 'workflow_execution_id', None)
+
+        # Initialize or reset results if:
+        # 1. First access in this thread
+        # 2. Different workflow execution
+        if not hasattr(self._results_storage, 'value') or \
+           not hasattr(self._results_storage, 'execution_id') or \
+           self._results_storage.execution_id != current_execution_id:
+            self._results_storage.value = []
+            self._results_storage.execution_id = current_execution_id
+
+        return self._results_storage.value
+
+    @results.setter
+    def results(self, value):
+        """Set thread-local results list."""
+        self._results_storage.value = value
+        # Track current execution
+        current_execution_id = getattr(self.context_manager, 'workflow_execution_id', None)
+        self._results_storage.execution_id = current_execution_id
 
     def _extract_type(self):
         """

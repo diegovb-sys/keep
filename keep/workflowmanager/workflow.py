@@ -185,6 +185,13 @@ class Workflow:
         self.context_manager.set_execution_context(
             self.workflow_id, workflow_execution_id
         )
+
+        # Clear provider results from previous executions to prevent contamination
+        # when workflow cache reuses provider instances (especially for conditional steps)
+        for step in self.workflow_steps:
+            step.provider.results = []
+        for action in self.workflow_actions:
+            action.provider.results = []
         try:
             self.run_steps()
         except StepError as e:
