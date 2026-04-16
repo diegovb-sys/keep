@@ -202,14 +202,30 @@ class Db2Provider(BaseProvider):
             # Use ibm_db_dbi for easier Python DB-API 2.0 interface
             pconn = ibm_db_dbi.Connection(conn)
             cursor = pconn.cursor()
-            cursor.execute(query)
+            # Split multiple statements by semicolon
+            statements = [s.strip() for s in query.split(';') if s.strip()]
 
-            # Commit if this is a write operation (INSERT, UPDATE, DELETE)
-            if query.strip().upper().startswith(("INSERT", "UPDATE", "DELETE")):
+            results = []
+            needs_commit = False
+
+            for i, statement in enumerate(statements):
+                cursor.execute(statement)
+
+                # Check if write operation
+                if statement.upper().startswith(("INSERT", "UPDATE", "DELETE", "DECLARE", "CREATE")):
+                    needs_commit = True
+
+                # Only fetch results from last statement
+                if i == len(statements) - 1:
+                    try:
+                        results = cursor.fetchall()
+                    except Exception:
+                        # Last statement might not return results (e.g., INSERT)
+                        results = []
+
+            # Commit if any write operation
+            if needs_commit:
                 pconn.commit()
-
-            # Fetch results
-            results = cursor.fetchall()
 
             if as_dict and results:
                 column_names = [desc[0] for desc in cursor.description]
