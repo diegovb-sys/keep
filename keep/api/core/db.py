@@ -2066,6 +2066,33 @@ def get_alerts_by_status(
         return session.exec(query).all()
 
 
+def get_alerts_by_status_in_timerange(
+    status: AlertStatus,
+    session: Session,
+    tenant_id: str,
+    start_time: datetime,
+    end_time: datetime,
+    limit: int = 1000,
+    after_timestamp: Optional[datetime] = None,
+) -> List[Alert]:
+    """Get alerts by status in time range with cursor pagination. Faster than offset."""
+    with existed_or_new_session(session) as session:
+        status_field = get_json_extract_field(session, Alert.event, "status")
+
+        query = (
+            select(Alert)
+            .where(status_field == status.value)
+            .where(Alert.tenant_id == tenant_id)
+            .where(Alert.timestamp >= start_time)
+            .where(Alert.timestamp <= end_time)
+        )
+
+        if after_timestamp:
+            query = query.where(Alert.timestamp < after_timestamp)
+
+        return session.exec(query.order_by(Alert.timestamp.desc()).limit(limit)).all()
+
+
 def get_api_key(api_key: str, include_deleted: bool = False) -> TenantApiKey:
     with Session(engine) as session:
         api_key_hashed = hashlib.sha256(api_key.encode()).hexdigest()

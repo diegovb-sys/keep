@@ -6,13 +6,14 @@ from datetime import timezone as dt_timezone
 import celpy
 from sqlmodel import Session
 
-from keep.api.consts import KEEP_CORRELATION_ENABLED, MAINTENANCE_WINDOW_ALERT_STRATEGY
+from keep.api.consts import KEEP_CORRELATION_ENABLED, MAINTENANCE_WINDOW_ALERT_STRATEGY, MAINTENANCE_WINDOW_RECOVERY_HOURS
 from opentelemetry import trace
 from keep.api.core.db import (
     add_audit,
     existed_or_new_session,
     get_alert_by_event_id,
     get_alerts_by_status,
+    get_alerts_by_status_in_timerange,
     get_all_presets_dtos,
     get_last_alert_by_fingerprint,
     get_maintenance_windows_started,
@@ -221,43 +222,66 @@ class MaintenanceWindowsBl:
         logger.info("Starting recover strategy for maintenance windows review.")
         env = celpy.Environment()
         with existed_or_new_session(session) as session:
+            now_utc = get_utc_now()
+            recovery_window = now_utc - datetime.timedelta(hours=MAINTENANCE_WINDOW_RECOVERY_HOURS)
+
+            # Fetch ALL active windows (needed to check if alerts are still blocked)
+            # We don't filter windows by time - we filter ALERTS by time
             windows = get_maintenance_windows_started(session)
 
             # Get unique tenant_ids from active windows to optimize query
             tenant_ids = {window.tenant_id for window in windows}
 
+            if not tenant_ids:
+                logger.info("No active maintenance windows found, skipping recovery")
+                return
+
             fingerprints_to_check: set = set()
 
             # Process alerts by tenant for better performance
             for tenant_id in tenant_ids:
-                # Fetch alerts in batches per tenant (limit to avoid memory issues)
-                offset = 0
+                # Get windows for this tenant (all active, no time filter)
+                tenant_windows = [w for w in windows if w.tenant_id == tenant_id]
+
+                if not tenant_windows:
+                    continue
+
+                # Calculate search start from maintenance windows, with protection
+                min_window_start = min(ensure_utc_aware(w.start_time) for w in tenant_windows)
+
+                # Hybrid approach: use window start time, but cap at recovery_window
+                # - If window started 10h ago → search from 10h ago
+                # - If window started 3 months ago → limit to recovery_window (e.g., 48h)
+                search_start = max(min_window_start, recovery_window)
+
+                # Cursor-based pagination (faster than offset)
+                last_timestamp = None
                 batch_size = 1000
 
                 while True:
-                    alerts_in_maint = get_alerts_by_status(
+                    alerts_in_maint = get_alerts_by_status_in_timerange(
                         AlertStatus.MAINTENANCE,
                         session,
                         tenant_id=tenant_id,
+                        start_time=search_start,
+                        end_time=now_utc,
                         limit=batch_size,
-                        offset=offset
+                        after_timestamp=last_timestamp
                     )
 
                     if not alerts_in_maint:
                         break
 
-                    logger.info(f"Processing batch of {len(alerts_in_maint)} alerts for tenant {tenant_id}, offset {offset}")
+                    logger.info(f"Processing batch of {len(alerts_in_maint)} alerts for tenant {tenant_id}")
 
+                    # Process alerts
                     for alert in alerts_in_maint:
                         active = False
-                        # Only check windows for the same tenant
-                        tenant_windows = [w for w in windows if w.tenant_id == tenant_id]
 
                         for window in tenant_windows:
                             w_start = ensure_utc_aware(window.start_time)
                             w_end = ensure_utc_aware(window.end_time)
                             alert_timestamp = ensure_utc_aware(alert.timestamp)
-                            now_utc = get_utc_now()
                             is_enable = window.enabled
 
                             # Check active windows - all times are now UTC-aware
@@ -294,10 +318,10 @@ class MaintenanceWindowsBl:
                                 ),
                             )
 
-                    # Move to next batch
-                    offset += batch_size
+                    # Move cursor to last timestamp for next batch
+                    last_timestamp = alerts_in_maint[-1].timestamp
 
-                    # Break if we got less than batch_size (last batch)
+                    # If we got less than batch_size, we've processed all alerts
                     if len(alerts_in_maint) < batch_size:
                         break
 

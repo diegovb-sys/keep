@@ -31,6 +31,9 @@ STATIC_PRESETS = {
 MAINTENANCE_WINDOW_ALERT_STRATEGY = os.environ.get(
     "MAINTENANCE_WINDOW_STRATEGY", "default"
 )  # recover_previous_status or default
+MAINTENANCE_WINDOW_RECOVERY_HOURS = int(
+    os.environ.get("MAINTENANCE_WINDOW_RECOVERY_HOURS", 168)
+)  # Max hours to look back for alert recovery from ended maintenance windows
 WATCHER_LAPSED_TIME = int(os.environ.get("KEEP_WATCHER_LAPSED_TIME", 60))  # in seconds
 ###
 # Set ARQ_TASK_POOL_TO_EXECUTE to "none", "all", "basic_processing" or "ai"
