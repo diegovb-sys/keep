@@ -154,6 +154,13 @@ class WebhookProvider(BaseProvider):
         """
         Send a HTTP request to the given url.
         """
+        # Extract message from kwargs to prevent it reaching requests.post()
+        message = kwargs.pop("message", None)
+
+        # If message is provided (e.g., from on-failure), wrap it in body
+        if message and not body:
+            body = {"message": message}
+
         self.query(
             url=self.authentication_config.url,
             method=self.authentication_config.method,
