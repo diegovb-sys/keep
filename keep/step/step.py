@@ -1,4 +1,5 @@
 import logging
+import threading
 import time
 from enum import Enum
 
@@ -65,6 +66,12 @@ class Step:
             self.provider.__class__
         )
 
+    def _get_workflow_execution_id(self):
+        """Resolve execution id from context manager, with thread fallback for safety."""
+        return self.context_manager.workflow_execution_id or getattr(
+            threading.current_thread(), "workflow_execution_id", None
+        )
+
     def run(self):
         try:
             if self.config.get("foreach"):
@@ -128,6 +135,7 @@ class Step:
         """Evaluate the action for each item, when using the `foreach` attribute (see foreach.md)"""
         # the item holds the value we are going to iterate over
         items = self._get_foreach_items()
+        workflow_execution_id = self._get_workflow_execution_id()
         any_action_run = False
         # Track foreach execution stats
         items_count = len(items) if isinstance(items, (list, tuple)) else 0
@@ -136,7 +144,11 @@ class Step:
 
         self.logger.info(
             f"Starting foreach for {self.step_id} with {items_count} items",
-            extra={"step_id": self.step_id, "items_count": items_count},
+            extra={
+                "step_id": self.step_id,
+                "items_count": items_count,
+                "workflow_execution_id": workflow_execution_id,
+            },
         )
 
         # apply ALL conditions (the decision whether to run or not is made in the end)
@@ -175,12 +187,14 @@ class Step:
                 "items_total": items_count,
                 "items_executed": executed_count,
                 "items_failed": failed_count,
+                "workflow_execution_id": workflow_execution_id,
             },
         )
 
         return any_action_run
 
     def _run_single(self, dont_render=False):
+        workflow_execution_id = self._get_workflow_execution_id()
         # Initialize all conditions
         conditions = []
 
@@ -300,6 +314,7 @@ class Step:
                     "condition": if_conf,
                     "rendered": if_met,
                     "step_id": self.step_id,
+                    "workflow_execution_id": workflow_execution_id,
                 },
             )
             return
@@ -311,6 +326,7 @@ class Step:
                     "condition": if_conf,
                     "rendered": if_met,
                     "step_id": self.step_id,
+                    "workflow_execution_id": workflow_execution_id,
                 },
             )
         else:
@@ -319,6 +335,7 @@ class Step:
                 self.config.get("name"),
                 extra={
                     "step_id": self.step_id,
+                    "workflow_execution_id": workflow_execution_id,
                 },
             )
 
@@ -329,6 +346,7 @@ class Step:
             self.config.get("name"),
             extra={
                 "step_id": self.step_id,
+                "workflow_execution_id": workflow_execution_id,
             },
         )
         throttled = self._check_throttling(self.config.get("name"))
@@ -338,6 +356,7 @@ class Step:
                 self.config.get("name"),
                 extra={
                     "step_id": self.step_id,
+                    "workflow_execution_id": workflow_execution_id,
                 },
             )
             return
@@ -346,6 +365,7 @@ class Step:
             self.config.get("name"),
             extra={
                 "step_id": self.step_id,
+                "workflow_execution_id": workflow_execution_id,
             },
         )
 

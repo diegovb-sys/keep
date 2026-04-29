@@ -85,12 +85,12 @@ class WorkflowContextFilter(logging.Filter):
         thread_exec_id = getattr(thread, "workflow_execution_id", None)
         if thread_exec_id:
             record.workflow_execution_id = thread_exec_id
-        elif hasattr(record, "workflow_execution_id") and record.workflow_execution_id:
-            # Already set from extra dict by LogRecord.__init__, keep it
+        elif hasattr(record, "workflow_execution_id"):
+            # Already set from extra dict by LogRecord.__init__, even if None
             pass
         else:
             # Not in thread or extra - this log won't be stored
-            pass
+            return False
 
         # Set tenant_id from thread if available
         tenant_id = getattr(thread, "tenant_id", None)
@@ -153,13 +153,18 @@ class WorkflowDBHandler(logging.Handler):
                 self.records.append(record)
 
     def push_logs_to_db(self):
-        # Convert log records to a list of dictionaries and clean the self.records buffer
-        # Thread-safe: copy and clear records atomically
+        # Read current records without clearing them yet.
+        # Records are only removed AFTER a successful DB write to avoid data loss on failure.
         with self._records_lock:
+            if not self.records:
+                return
             log_entries = [record.__dict__ for record in self.records]
-            self.records = []
-        # Push log entries to the database (outside lock to avoid blocking)
+            count = len(log_entries)
+        # Push log entries to the database (outside lock to avoid blocking other threads)
         push_logs_to_db(log_entries)
+        # Only clear the records that were successfully written
+        with self._records_lock:
+            self.records = self.records[count:]
 
     def flush(self):
         # Thread-safe check if there are records to flush
@@ -401,6 +406,14 @@ CONFIG = {
             "propagate": False,
         },
         "keep.workflowmanager": {
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "keep.step": {
+            "level": "DEBUG",
+            "propagate": True,
+        },
+        "keep.throttles": {
             "level": "DEBUG",
             "propagate": True,
         },

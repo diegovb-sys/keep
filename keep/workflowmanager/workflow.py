@@ -72,11 +72,25 @@ class Workflow:
         self.logger.debug(f"Running steps for workflow {self.workflow_id}")
         for step in self.workflow_steps:
             try:
+                # Keep step context aligned with workflow context so logs emitted
+                # from Step methods always include workflow identifiers.
+                if getattr(step, "context_manager", None):
+                    step.context_manager.workflow_id = self.workflow_id
+                    step.context_manager.workflow_execution_id = workflow_execution_id
+
+                thread = threading.current_thread()
+                thread.workflow_id = self.workflow_id
+                thread.workflow_execution_id = workflow_execution_id
+                thread.tenant_id = self.context_manager.tenant_id
                 threading.current_thread().step_id = step.step_id
+                provider_type = step.provider.__class__.__name__ if hasattr(step, 'provider') else None
                 self.logger.info(
-                    "Running step %s",
-                    step.step_id,
-                    extra={"step_id": step.step_id, "workflow_execution_id": workflow_execution_id},
+                    f"Running step {step.step_id} (provider: {provider_type})",
+                    extra={
+                        "step_id": step.step_id,
+                        "workflow_execution_id": workflow_execution_id,
+                        "provider_type": provider_type,
+                    },
                 )
                 step_ran = step.run()
                 if step_ran:
@@ -95,9 +109,19 @@ class Workflow:
                     )
                     break
             except StepError as e:
+                # Get provider details if available
+                provider_params = getattr(step, 'provider_parameters', None)
+                provider_type = step.provider.__class__.__name__ if hasattr(step, 'provider') else None
+
                 self.logger.error(
                     f"Step {step.step_id} failed: {e}",
-                    extra={"workflow_execution_id": workflow_execution_id}
+                    extra={
+                        "workflow_execution_id": workflow_execution_id,
+                        "step_id": step.step_id,
+                        "provider_type": provider_type,
+                        "provider_params": provider_params,
+                        "error": str(e),
+                    }
                 )
                 threading.current_thread().step_id = None
                 raise
@@ -105,10 +129,14 @@ class Workflow:
 
     def run_action(self, action: Step):
         workflow_execution_id = self.context_manager.workflow_execution_id
+        provider_type = action.provider.__class__.__name__ if hasattr(action, 'provider') else None
         self.logger.info(
-            "Running action %s",
-            action.name,
-            extra={"step_id": action.step_id, "workflow_execution_id": workflow_execution_id},
+            f"Running action {action.name} (provider: {provider_type})",
+            extra={
+                "step_id": action.step_id,
+                "workflow_execution_id": workflow_execution_id,
+                "provider_type": provider_type,
+            },
         )
         try:
             action_stop = False
@@ -134,11 +162,17 @@ class Workflow:
                 )
                 action_stop = True
         except Exception as e:
+            provider_type = action.provider.__class__.__name__ if hasattr(action, 'provider') else None
+            provider_params = getattr(action, 'provider_parameters', None)
+
             self.logger.error(
                 f"Action {action.name} failed: {e}",
                 extra={
                     "step_id": action.step_id,
                     "workflow_execution_id": workflow_execution_id,
+                    "provider_type": provider_type,
+                    "provider_params": provider_params,
+                    "error": str(e),
                 },
             )
             action_ran = False

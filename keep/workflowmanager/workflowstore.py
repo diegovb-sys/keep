@@ -1,7 +1,9 @@
+import copy
 import io
 import logging
 import os
 import random
+import threading
 import uuid
 from typing import Tuple
 
@@ -39,6 +41,7 @@ class WorkflowEntryCache:
         self.parser = parser
         self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
         self.last_modified_saved = workflow.last_updated
+        self.deepcopy_supported = True
 
     def get_payload(self, workflow: WorkflowModel) -> Workflow | None:
         """
@@ -54,7 +57,29 @@ class WorkflowEntryCache:
             logging.info(f"Workflow {workflow.id} has been updated since last cache. Updating payload.")
             self.payload = self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
             self.last_modified_saved = workflow.last_updated
-        return self.payload
+            self.deepcopy_supported = True
+        # The parsed workflow object contains mutable execution state via the
+        # context manager and providers. Returning a copy prevents concurrent
+        # runs from sharing that state through the cache.
+        if not self.deepcopy_supported:
+            # Skip deepcopy retries for known non-deepcopyable payloads until
+            # the workflow changes and cache is refreshed.
+            return self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
+
+        try:
+            return copy.deepcopy(self.payload)
+        except Exception:
+            self.deepcopy_supported = False
+            thread_local_path = self.__find_thread_local_path(self.payload)
+            logging.exception(
+                "Failed to deepcopy workflow payload, reparsing workflow for isolated execution",
+                extra={
+                    "workflow_id": workflow.id,
+                    "workflow_revision": workflow.revision,
+                    "thread_local_path": thread_local_path,
+                },
+            )
+            return self.__parse_payload(workflow.workflow_raw, workflow.revision, workflow.is_test)
 
     def __parse_payload(self, raw: str, revision: int, is_test: bool) -> Workflow:
         workflow_yaml = cyaml.safe_load(raw)
@@ -66,6 +91,59 @@ class WorkflowEntryCache:
             is_test=is_test,
         )
         return workflow
+
+    def __find_thread_local_path(self, obj, path="payload", visited=None, depth=0):
+        """Best-effort locator for thread-local objects in payload graph."""
+        if visited is None:
+            visited = set()
+        if depth > 10:
+            return None
+
+        obj_id = id(obj)
+        if obj_id in visited:
+            return None
+        visited.add(obj_id)
+
+        if isinstance(obj, threading.local):
+            return path
+
+        if isinstance(obj, dict):
+            for key, value in obj.items():
+                found = self.__find_thread_local_path(
+                    value,
+                    path=f"{path}[{repr(key)}]",
+                    visited=visited,
+                    depth=depth + 1,
+                )
+                if found:
+                    return found
+            return None
+
+        if isinstance(obj, (list, tuple, set)):
+            for index, value in enumerate(obj):
+                found = self.__find_thread_local_path(
+                    value,
+                    path=f"{path}[{index}]",
+                    visited=visited,
+                    depth=depth + 1,
+                )
+                if found:
+                    return found
+            return None
+
+        object_dict = getattr(obj, "__dict__", None)
+        if isinstance(object_dict, dict):
+            for key, value in object_dict.items():
+                found = self.__find_thread_local_path(
+                    value,
+                    path=f"{path}.{key}",
+                    visited=visited,
+                    depth=depth + 1,
+                )
+                if found:
+                    return found
+
+        return None
 
 
 class WorkflowStore:

@@ -671,13 +671,29 @@ class WorkflowManager:
                 **workflow.on_failure.provider_parameters,
                 "message": message,
             }
-            workflow.on_failure.run()
+
+            # Log parameters before execution
             self.logger.info(
-                "Ran on_failure action for workflow",
+                f"Executing on_failure with message: {message}",
                 extra={
                     "workflow_execution_id": workflow_execution_id,
                     "workflow_id": workflow.workflow_id,
                     "tenant_id": workflow.context_manager.tenant_id,
+                    "on_failure_params": workflow.on_failure.provider_parameters,
+                },
+            )
+
+            workflow.on_failure.run()
+
+            # Log results after execution
+            results = workflow.on_failure.provider.results if hasattr(workflow.on_failure.provider, 'results') else None
+            self.logger.info(
+                f"on_failure action completed. Results: {results}",
+                extra={
+                    "workflow_execution_id": workflow_execution_id,
+                    "workflow_id": workflow.workflow_id,
+                    "tenant_id": workflow.context_manager.tenant_id,
+                    "on_failure_results": results,
                 },
             )
         else:
@@ -713,6 +729,14 @@ class WorkflowManager:
                     extra={"exception": e, "workflow_execution_id": workflow_execution_id},
                 )
                 self._run_workflow_on_failure(workflow, workflow_execution_id, str(e))
+                # Save partial results (steps that ran before the failure)
+                try:
+                    self._save_workflow_results(workflow, workflow_execution_id)
+                except Exception as save_err:
+                    self.logger.warning(
+                        f"Failed to save partial workflow results on failure: {save_err}",
+                        extra={"workflow_execution_id": workflow_execution_id},
+                    )
                 # Flush logs before re-raising to ensure error logs are saved
                 self._flush_workflow_logs()
                 raise

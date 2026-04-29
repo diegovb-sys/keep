@@ -12,6 +12,7 @@ import logging
 import operator
 import os
 import re
+import threading
 import uuid
 from collections import Counter
 from operator import attrgetter
@@ -129,7 +130,6 @@ class BaseProvider(metaclass=abc.ABCMeta):
         self.provider_type = self._extract_type()
         # Thread-local storage for results to prevent contamination when workflow cache
         # reuses provider instances across concurrent executions
-        import threading
         self._results_storage = threading.local()
         # tb: we can have this overriden by customer configuration, when initializing the provider
         self.fingerprint_fields = self.FINGERPRINT_FIELDS
@@ -159,6 +159,51 @@ class BaseProvider(metaclass=abc.ABCMeta):
         # Track current execution
         current_execution_id = getattr(self.context_manager, 'workflow_execution_id', None)
         self._results_storage.execution_id = current_execution_id
+
+    def __getstate__(self):
+        """Make provider instances deepcopy-safe by skipping unsafe runtime state."""
+        state = self.__dict__.copy()
+        state.pop("_results_storage", None)
+
+        # Some providers cache runtime clients/tokens/sessions that are not
+        # deepcopy-safe (for example, objects embedding threading.local).
+        # Replace non-essential, non-copyable attributes with None so the
+        # provider can be safely cloned per execution.
+        essential_attributes = {
+            "provider_id",
+            "config",
+            "webhooke_template",
+            "webhook_description",
+            "webhook_markdown",
+            "provider_description",
+            "context_manager",
+            "logger",
+            "provider_type",
+            "fingerprint_fields",
+            "step_id",
+            "authentication_config",
+        }
+
+        for attribute_name, attribute_value in list(state.items()):
+            if attribute_name in essential_attributes:
+                continue
+            try:
+                copy.deepcopy(attribute_value)
+            except Exception:
+                state[attribute_name] = None
+
+        return state
+
+    def __setstate__(self, state):
+        """Restore provider state and recreate thread-local storage after deepcopy."""
+        self.__dict__.update(state)
+        self._results_storage = threading.local()
+
+        # Deepcopy can clone adapter metadata; ensure each copied provider instance
+        # gets a fresh execution identifier and points back to itself.
+        if isinstance(getattr(self, "logger", None), ProviderLoggerAdapter):
+            self.logger.provider_instance = self
+            self.logger.execution_id = str(uuid.uuid4())
 
     def _extract_type(self):
         """
